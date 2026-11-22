@@ -58,9 +58,7 @@ function makeQuestionRow(
 }
 
 /**
- * Build a large, spacious 8-digit vertical No. NDP Pelajar bubble grid.
- * Because max question count is 50, the NDP grid enjoys generous 44px column spacing,
- * 26.8px row spacing, 28x24 write-in boxes, and large r=10.6px bubbles.
+ * Large, spacious 8-digit vertical No. NDP Pelajar bubble grid.
  */
 function buildNdpGrid(): {
   box: { x: number; y: number; w: number; h: number };
@@ -98,17 +96,17 @@ function buildNdpGrid(): {
 }
 
 /**
- * Dynamically generate a pixel-accurate OMR Answer Sheet template for ANY manual question count (1..50)
- * with A–D choices grouped cleanly into 5-row blocks (1–5, gap, 6–10, gap, 11–15, ...),
- * larger title & student info header, extra-spacious 8-digit No. NDP grid, and split bottom-right MARKAH box.
+ * Dynamically generate a pixel-accurate OMR Answer Sheet template for ANY manual question count (1..60).
+ * Adaptive bubble sizing ensures fewer questions (e.g. 10, 20, 30) automatically scale up
+ * with larger bubbles and spacing so the answer zone always looks balanced and full.
  */
 export function buildSheetTemplate(rawQuestionCount: number): AnswerSheetTemplate {
   const questionCount = clampQuestionCount(rawQuestionCount);
   const ndp = buildNdpGrid();
   const questions: QuestionBubbleRow[] = [];
 
-  // Dedicated lower question zone: x=[98..802], y=[550..1034] (ample clearance above scoreBoxRect y=1046)
-  const areaTop = 550;
+  // Dedicated lower question zone: x=[98..802], y=[552..1034]
+  const areaTop = 552;
   const areaBottom = 1034;
 
   let colStarts: number[];
@@ -118,40 +116,48 @@ export function buildSheetTemplate(rawQuestionCount: number): AnswerSheetTemplat
   let maxRowStep: number;
   let groupGap: number;
 
-  if (questionCount <= 10) {
-    // 1 centered column (up to 2 blocks of 5)
-    colStarts = [385];
-    colStep = 50;
-    labelOffset = 44;
-    r = 13.0;
-    maxRowStep = 43;
-    groupGap = 18;
+  if (questionCount <= 5) {
+    // 1 centered column, extra-large bold bubbles filling the zone cleanly
+    colStarts = [358];
+    colStep = 64;
+    labelOffset = 52;
+    r = 17.5;
+    maxRowStep = 76;
+    groupGap = 0;
+  } else if (questionCount <= 10) {
+    // 1 centered column, 2 blocks of 5 with large r=16 bubbles
+    colStarts = [366];
+    colStep = 58;
+    labelOffset = 48;
+    r = 16.0;
+    maxRowStep = 47.0;
+    groupGap = 24;
   } else if (questionCount <= 20) {
-    // 2 columns x up to 10 rows (2 blocks of 5 per col)
-    colStarts = [204, 560];
-    colStep = 46;
-    labelOffset = 40;
-    r = 12.2;
-    maxRowStep = 43;
-    groupGap = 18;
+    // 2 wide columns x up to 10 rows (2 blocks of 5 per col) with large r=15.2 bubbles
+    colStarts = [194, 558];
+    colStep = 54;
+    labelOffset = 46;
+    r = 15.2;
+    maxRowStep = 47.0;
+    groupGap = 24;
   } else if (questionCount <= 30) {
-    // 3 columns x up to 10 rows (2 blocks of 5 per col)
-    colStarts = [166, 400, 634];
-    colStep = 36;
-    labelOffset = 34;
-    r = 11.4;
-    maxRowStep = 43;
-    groupGap = 18;
+    // 3 generous columns x up to 10 rows (2 blocks of 5 per col) with large r=14.0 bubbles filling full height & width!
+    colStarts = [164, 400, 636];
+    colStep = 42;
+    labelOffset = 37;
+    r = 14.0;
+    maxRowStep = 47.5;
+    groupGap = 24;
   } else if (questionCount <= 45) {
-    // 3 columns x up to 15 rows (3 blocks of 5 per col)
-    colStarts = [166, 400, 634];
-    colStep = 36;
-    labelOffset = 34;
-    r = 10.6;
-    maxRowStep = 30.8;
-    groupGap = 14;
+    // 3 balanced columns x up to 15 rows (3 blocks of 5 per col)
+    colStarts = [166, 402, 638];
+    colStep = 38;
+    labelOffset = 35;
+    r = 11.4;
+    maxRowStep = 30.6;
+    groupGap = 15;
   } else {
-    // 4 columns x up to 15 rows (46..50 -> cols 1-15, 16-30, 31-45, 46-50)
+    // 4 clean columns x up to 15 rows (46..60 -> 1-15, 16-30, 31-45, 46-60)
     colStarts = [148, 330, 512, 694];
     colStep = 31;
     labelOffset = 28;
@@ -162,7 +168,7 @@ export function buildSheetTemplate(rawQuestionCount: number): AnswerSheetTemplat
 
   const numCols = colStarts.length;
   const rawRowsPerCol = Math.ceil(questionCount / numCols);
-  const rowsPerCol = Math.max(5, Math.ceil(rawRowsPerCol / 5) * 5);
+  const rowsPerCol = questionCount <= 5 ? questionCount : Math.max(5, Math.ceil(rawRowsPerCol / 5) * 5);
   const gapsPerCol = Math.max(0, Math.floor((rowsPerCol - 1) / 5));
 
   const availableH = areaBottom - areaTop - r * 2 - gapsPerCol * groupGap;
@@ -171,7 +177,12 @@ export function buildSheetTemplate(rawQuestionCount: number): AnswerSheetTemplat
       ? 0
       : Math.min(maxRowStep, Math.floor((availableH / (rowsPerCol - 1)) * 10) / 10);
 
-  const startY = areaTop + r;
+  // For tiny sets (1..5), gently center vertically inside the answer zone
+  const totalUsedH = (rowsPerCol - 1) * rowStep + gapsPerCol * groupGap + r * 2;
+  const startY =
+    questionCount <= 5
+      ? areaTop + r + Math.max(0, (areaBottom - areaTop - totalUsedH) * 0.35)
+      : areaTop + r;
 
   for (let i = 0; i < questionCount; i++) {
     const colIdx = Math.floor(i / rowsPerCol);
@@ -192,7 +203,7 @@ export function buildSheetTemplate(rawQuestionCount: number): AnswerSheetTemplat
   }
 
   return {
-    id: `custom-${questionCount}q-abcd-g5-ndplg`,
+    id: `custom-${questionCount}q-abcd-g5-adaptive`,
     name: `Borang OMR ${questionCount} Soalan (A–D)`,
     questionCount,
     warpWidth: WARP_W,

@@ -195,11 +195,12 @@ export function buildSheetSvgMarkup(
     const colKey = Math.round(q.bubbles.A.x);
     if (seenCols.has(colKey)) continue;
     seenCols.add(colKey);
-    const hdrY = 542;
+    const hdrY = Math.min(544, Math.round(q.labelY - q.bubbles.A.r - 10));
+    const hdrFont = Math.max(11, Math.min(15, Math.round(q.bubbles.A.r * 0.92)));
     for (const ch of ANSWER_CHOICES) {
       const b = q.bubbles[ch];
       parts.push(
-        `<text x="${b.x}" y="${hdrY}" text-anchor="middle" font-size="11" font-weight="700" fill="#1e3a8a">${ch}</text>`
+        `<text x="${b.x}" y="${hdrY}" text-anchor="middle" font-size="${hdrFont}" font-weight="800" fill="#1e3a8a">${ch}</text>`
       );
     }
   }
@@ -219,29 +220,31 @@ export function buildSheetSvgMarkup(
     const first = grp[0];
     const last = grp[grp.length - 1];
     const r = first.bubbles.A.r;
-    const boxX = first.labelX - 24;
-    const boxY = first.labelY - r - 3;
-    const boxW = first.bubbles.D.x - boxX + r + 8;
-    const boxH = last.labelY - first.labelY + r * 2 + 6;
+    const padLeft = r >= 14 ? 30 : 24;
+    const padY = r >= 14 ? 5 : 3.5;
+    const boxX = first.labelX - padLeft;
+    const boxY = first.labelY - r - padY;
+    const boxW = first.bubbles.D.x - boxX + r + 10;
+    const boxH = last.labelY - first.labelY + r * 2 + padY * 2;
     parts.push(
-      `<rect x="${boxX}" y="${boxY}" width="${boxW}" height="${boxH}" rx="5" fill="#f8fafc" stroke="#e2e8f0" stroke-width="0.9"/>`
+      `<rect x="${boxX}" y="${boxY}" width="${boxW}" height="${boxH}" rx="6" fill="#f8fafc" stroke="#e2e8f0" stroke-width="1"/>`
     );
   }
 
-  // Question Bubbles (dynamic 1..50, A–D only)
+  // Question Bubbles (dynamic 1..60, A–D only; scales up smoothly when question count is smaller)
   for (const q of template.questions) {
     const firstB = q.bubbles.A;
     parts.push(
-      `<text x="${q.labelX}" y="${q.labelY + Math.round(firstB.r * 0.38)}" text-anchor="end" font-size="${Math.max(10.5, Math.round(firstB.r * 1.15))}" font-weight="700" fill="#1e293b">${q.questionNumber}</text>`
+      `<text x="${q.labelX}" y="${q.labelY + Math.round(firstB.r * 0.38)}" text-anchor="end" font-size="${Math.max(11, Math.min(18, Math.round(firstB.r * 1.1)))}" font-weight="700" fill="#1e293b">${q.questionNumber}</text>`
     );
 
     for (const ch of ANSWER_CHOICES) {
       const b = q.bubbles[ch];
       parts.push(
-        `<circle cx="${b.x}" cy="${b.y}" r="${b.r}" fill="#ffffff" stroke="#64748b" stroke-width="1.4"/>`
+        `<circle cx="${b.x}" cy="${b.y}" r="${b.r}" fill="#ffffff" stroke="#64748b" stroke-width="${b.r >= 14 ? 1.6 : 1.4}"/>`
       );
       parts.push(
-        `<text x="${b.x}" y="${b.y + Math.round(b.r * 0.36)}" text-anchor="middle" font-size="${Math.max(8.5, Math.round(b.r * 0.90))}" fill="#9ca3af">${ch}</text>`
+        `<text x="${b.x}" y="${b.y + Math.round(b.r * 0.36)}" text-anchor="middle" font-size="${Math.max(8.5, Math.min(15, Math.round(b.r * 0.88)))}" fill="#9ca3af">${ch}</text>`
       );
     }
   }

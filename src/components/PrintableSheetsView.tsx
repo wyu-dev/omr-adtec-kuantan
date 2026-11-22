@@ -9,7 +9,7 @@ interface PrintableSheetsViewProps {
   defaultTitle: string;
 }
 
-const QUICK_COUNTS = [5, 10, 15, 20, 25, 30, 35, 40, 45, 50];
+const QUICK_COUNTS = [5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 60];
 
 export const PrintableSheetsView: React.FC<PrintableSheetsViewProps> = ({
   defaultQuestionCount,
@@ -76,7 +76,7 @@ export const PrintableSheetsView: React.FC<PrintableSheetsViewProps> = ({
                 htmlFor="print-question-count"
                 className="mb-1 block text-xs font-bold text-slate-600"
               >
-                Bilangan Soalan Manual (1–50)
+                Bilangan Soalan Manual (1–60)
               </label>
               <input
                 id="print-question-count"

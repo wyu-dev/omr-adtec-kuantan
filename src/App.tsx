@@ -41,7 +41,7 @@ import { StudentsManager } from './components/StudentsManager';
 
 type TabId = 'scan' | 'key' | 'papers' | 'analysis' | 'students' | 'sheets';
 
-const QUICK_QUESTION_PRESETS = [5, 10, 15, 20, 25, 30, 35, 40, 45, 50];
+const QUICK_QUESTION_PRESETS = [5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 60];
 
 export function App() {
   const [quizzes, setQuizzes] = useState<Quiz[]>(() => loadQuizzes());
@@ -475,7 +475,7 @@ export function App() {
               <img src={ADTEC_LOGO_DATA_URL} alt="ADTEC JTM Kuantan" className="h-7 w-auto" />
             </div>
             <p className="text-xs text-slate-500">
-              Tetapkan sebarang bilangan soalan secara manual (1 hingga 50 soalan). Borang OMR & pengimbas kamera akan dijana secara automatik.
+              Tetapkan sebarang bilangan soalan secara manual (1 hingga 60 soalan). Saiz bulatan akan dilaras secara automatik supaya borang sentiasa kemas dan penuh.
             </p>
 
             <div className="mt-4 space-y-3.5">
