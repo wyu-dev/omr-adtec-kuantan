@@ -8,6 +8,7 @@ import {
   KeyRound,
   Plus,
   Printer,
+  Smartphone,
   Trash2,
   Users,
 } from 'lucide-react';
@@ -52,6 +53,34 @@ export function App() {
   const [scanMode, setScanMode] = useState<'grade' | 'key'>('grade');
   const [reviewPaperId, setReviewPaperId] = useState<string | null>(null);
   const [showNewQuizModal, setShowNewQuizModal] = useState(false);
+  const [installPrompt, setInstallPrompt] = useState<{
+    prompt: () => Promise<void>;
+    userChoice: Promise<{ outcome: 'accepted' | 'dismissed' }>;
+  } | null>(null);
+
+  // Listen for browser PWA install prompt
+  useEffect(() => {
+    const handler = (e: Event) => {
+      e.preventDefault();
+      setInstallPrompt(
+        e as unknown as {
+          prompt: () => Promise<void>;
+          userChoice: Promise<{ outcome: 'accepted' | 'dismissed' }>;
+        }
+      );
+    };
+    window.addEventListener('beforeinstallprompt', handler);
+    return () => window.removeEventListener('beforeinstallprompt', handler);
+  }, []);
+
+  const handleInstallPwa = async () => {
+    if (!installPrompt) return;
+    await installPrompt.prompt();
+    const res = await installPrompt.userChoice;
+    if (res.outcome === 'accepted') {
+      setInstallPrompt(null);
+    }
+  };
 
   // New quiz modal fields (manual question count)
   const [newQuizName, setNewQuizName] = useState('');
@@ -171,13 +200,18 @@ export function App() {
       {/* Top Navbar with ADTEC JTM Kampus Kuantan Logo */}
       <header className="no-print sticky top-0 z-30 border-b border-slate-200 bg-white/95 backdrop-blur">
         <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-3 px-4 py-2.5">
-          <div className="flex items-center gap-3.5">
+          <div className="flex items-center gap-3">
+            <img
+              src="./pwa-192.png"
+              alt="Ikon Aplikasi OMR ADTEC"
+              className="h-10 w-10 rounded-xl shadow-sm ring-1 ring-slate-200"
+            />
             <img
               src={ADTEC_LOGO_DATA_URL}
               alt="Logo ADTEC JTM Kampus Kuantan"
-              className="h-11 w-auto object-contain"
+              className="h-10 w-auto object-contain"
             />
-            <div className="hidden border-l border-slate-200 pl-3.5 sm:block">
+            <div className="hidden border-l border-slate-200 pl-3 sm:block">
               <h1 className="text-sm font-extrabold tracking-tight text-blue-950">
                 Sistem Semakan <span className="text-amber-500">OMR</span>
               </h1>
@@ -209,6 +243,17 @@ export function App() {
               <Plus className="h-4 w-4" />
               Ujian Baru
             </button>
+
+            {installPrompt && (
+              <button
+                onClick={handleInstallPwa}
+                className="inline-flex items-center gap-1.5 rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-bold text-amber-900 hover:bg-amber-100"
+                title="Pasang sebagai aplikasi PWA di telefon / desktop"
+              >
+                <Smartphone className="h-4 w-4 text-amber-600" />
+                Pasang App
+              </button>
+            )}
 
             {quizzes.length > 1 && activeQuiz && (
               <button

@@ -951,24 +951,37 @@ export function processAndGradeSheet(
     }
   }
 
-  // Render graded percentage cleanly inside the official bottom-right MARKAH (%) box
+  // Render both correct count (e.g. 20/25) and percentage (e.g. 80%) cleanly inside the split bottom-right KEPUTUSAN MARKAH box
   const pct = maxScore > 0 ? Math.round((score / maxScore) * 1000) / 10 : 0;
   const sc = template.scoreBoxRect;
+  const midX = sc.x + Math.round(sc.w * 0.5);
+  const leftCx = sc.x + (midX - sc.x) / 2;
+  const rightCx = midX + (sc.x + sc.w - midX) / 2;
+
+  // Clear lower values area while preserving header & sub-labels
   ctx.fillStyle = '#ffffff';
-  ctx.fillRect(sc.x + 3, sc.y + 22, sc.w - 6, sc.h - 25);
-  ctx.fillStyle = pct >= 70 ? '#15803d' : pct >= 50 ? '#d97706' : '#dc2626';
-  ctx.font = 'bold 26px sans-serif';
+  ctx.fillRect(sc.x + 3, sc.y + 35, midX - sc.x - 5, sc.h - 38);
+  ctx.fillRect(midX + 2, sc.y + 35, sc.x + sc.w - midX - 5, sc.h - 38);
+
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.fillText(
-    maxScore > 0 ? `${Math.round(pct)}%` : 'SKEMA',
-    sc.x + sc.w / 2,
-    sc.y + 39
-  );
+  const valY = sc.y + 51;
+
   if (maxScore > 0) {
-    ctx.fillStyle = '#475569';
-    ctx.font = 'bold 11px sans-serif';
-    ctx.fillText(`${score}/${maxScore} betul`, sc.x + sc.w / 2, sc.y + 56);
+    // Left cell: Bilangan jawapan betul (contoh: 20/25)
+    ctx.fillStyle = '#0f172a';
+    ctx.font = 'bold 21px sans-serif';
+    ctx.fillText(`${correctCount}/${template.questionCount}`, leftCx, valY);
+
+    // Right cell: Nilai peratus (contoh: 80%)
+    ctx.fillStyle = pct >= 70 ? '#15803d' : pct >= 50 ? '#d97706' : '#dc2626';
+    ctx.font = 'bold 22px sans-serif';
+    ctx.fillText(`${Math.round(pct)}%`, rightCx, valY);
+  } else {
+    ctx.fillStyle = '#1e3a8a';
+    ctx.font = 'bold 16px sans-serif';
+    ctx.fillText('SKEMA', leftCx, valY);
+    ctx.fillText('OK', rightCx, valY);
   }
 
   const annotatedImageDataUrl = canvas.toDataURL('image/jpeg', 0.86);

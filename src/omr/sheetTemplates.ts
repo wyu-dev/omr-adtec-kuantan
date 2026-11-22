@@ -65,14 +65,14 @@ function buildNdpGrid(): {
   box: { x: number; y: number; w: number; h: number };
   digits: StudentIdDigitGroup[];
 } {
-  const box = { x: 98, y: 166, w: 328, h: 248 };
+  const box = { x: 98, y: 186, w: 328, h: 242 };
   const digits: StudentIdDigitGroup[] = [];
   const startX = 136;
   const colStep = 36;
-  const headerY = 196;
-  const startY = 219;
-  const rowStep = 20.6;
-  const r = 8.2;
+  const headerY = 216;
+  const startY = 238;
+  const rowStep = 20.0;
+  const r = 8.0;
 
   for (let d = 0; d < NDP_DIGIT_COUNT; d++) {
     const cx = startX + d * colStep;
@@ -99,16 +99,16 @@ function buildNdpGrid(): {
 /**
  * Dynamically generate a pixel-accurate OMR Answer Sheet template for ANY manual question count (1..100)
  * with A–D choices grouped cleanly into 5-row blocks (1–5, gap, 6–10, gap, 11–15, ...),
- * 8-digit No. NDP grid, 5-field top info box, and bottom-right MARKAH (%) box.
+ * larger title & student info header, 8-digit No. NDP grid, and split bottom-right MARKAH (Betul + %) box.
  */
 export function buildSheetTemplate(rawQuestionCount: number): AnswerSheetTemplate {
   const questionCount = clampQuestionCount(rawQuestionCount);
   const ndp = buildNdpGrid();
   const questions: QuestionBubbleRow[] = [];
 
-  // Dedicated lower question zone: x=[98..802], y=[450..1038] (leaves clean space for bottom-right MARKAH % box at y=1052..1114)
-  const areaTop = 452;
-  const areaBottom = 1038;
+  // Dedicated lower question zone: x=[98..802], y=[460..1034]
+  const areaTop = 460;
+  const areaBottom = 1034;
 
   let colStarts: number[];
   let colStep: number;
@@ -118,65 +118,57 @@ export function buildSheetTemplate(rawQuestionCount: number): AnswerSheetTemplat
   let groupGap: number;
 
   if (questionCount <= 10) {
-    // 1 centered column, up to 2 blocks of 5
     colStarts = [385];
     colStep = 50;
     labelOffset = 44;
     r = 13.0;
-    maxRowStep = 44;
-    groupGap = 20;
+    maxRowStep = 43;
+    groupGap = 18;
   } else if (questionCount <= 20) {
-    // 2 columns x up to 10 rows (2 blocks of 5 per col)
     colStarts = [204, 560];
     colStep = 46;
     labelOffset = 40;
     r = 12.2;
-    maxRowStep = 44;
+    maxRowStep = 43;
     groupGap = 18;
   } else if (questionCount <= 30) {
-    // 3 columns x up to 10 rows (2 blocks of 5 per col)
     colStarts = [166, 400, 634];
     colStep = 36;
     labelOffset = 34;
     r = 11.4;
-    maxRowStep = 44;
+    maxRowStep = 43;
     groupGap = 18;
   } else if (questionCount <= 45) {
-    // 3 columns x up to 15 rows (3 blocks of 5 per col)
     colStarts = [166, 400, 634];
     colStep = 36;
     labelOffset = 34;
     r = 10.6;
-    maxRowStep = 34.5;
-    groupGap = 15;
+    maxRowStep = 33.5;
+    groupGap = 14;
   } else if (questionCount <= 60) {
-    // 4 columns x up to 15 rows (3 blocks of 5 per col)
     colStarts = [148, 330, 512, 694];
     colStep = 31;
     labelOffset = 28;
     r = 9.8;
-    maxRowStep = 34.5;
+    maxRowStep = 33.5;
     groupGap = 14;
   } else if (questionCount <= 80) {
-    // 4 columns x up to 20 rows (4 blocks of 5 per col)
     colStarts = [148, 330, 512, 694];
     colStep = 31;
     labelOffset = 28;
-    r = 9.2;
-    maxRowStep = 27.2;
-    groupGap = 11;
+    r = 9.0;
+    maxRowStep = 26.5;
+    groupGap = 10;
   } else {
-    // 4 columns x up to 25 rows (5 blocks of 5 per col, up to 100 questions)
     colStarts = [148, 330, 512, 694];
     colStep = 31;
     labelOffset = 28;
-    r = 8.4;
-    maxRowStep = 22.8;
-    groupGap = 8;
+    r = 8.2;
+    maxRowStep = 22.0;
+    groupGap = 7;
   }
 
   const numCols = colStarts.length;
-  // Round rowsPerCol up to a clean multiple of 5 so every column starts on 1, 6, 11, 16, 21, 26...
   const rawRowsPerCol = Math.ceil(questionCount / numCols);
   const rowsPerCol = Math.max(5, Math.ceil(rawRowsPerCol / 5) * 5);
   const gapsPerCol = Math.max(0, Math.floor((rowsPerCol - 1) / 5));
@@ -219,8 +211,8 @@ export function buildSheetTemplate(rawQuestionCount: number): AnswerSheetTemplat
     curveFiducialSize: 22,
     orientationDot: ORIENTATION_DOT,
     orientationBlank: ORIENTATION_BLANK,
-    nameCropRect: { x: 98, y: 106, w: 704, h: 52 },
-    scoreBoxRect: { x: 636, y: 1052, w: 166, h: 62 },
+    nameCropRect: { x: 98, y: 114, w: 704, h: 64 },
+    scoreBoxRect: { x: 588, y: 1046, w: 214, h: 68 },
     studentIdLayout: 'vertical',
     studentIdBox: ndp.box,
     studentIdDigits: ndp.digits,
