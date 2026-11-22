@@ -1,0 +1,22 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+dist-ssr/
+
+# Local & editor files
+.env
+.env.local
+.env.*.local
+*.local
+*.log
+.DS_Store
+Thumbs.db
+.vscode/*
+!.vscode/extensions.json
+.idea/
+
+# Local research notes / binaries
+REA_ANALYSIS.md
+*.apk
