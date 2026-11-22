@@ -2,7 +2,7 @@ export type AnswerChoice = 'A' | 'B' | 'C' | 'D';
 export const ANSWER_CHOICES: AnswerChoice[] = ['A', 'B', 'C', 'D'];
 
 export const MIN_QUESTION_COUNT = 1;
-export const MAX_QUESTION_COUNT = 100;
+export const MAX_QUESTION_COUNT = 50;
 export const NDP_DIGIT_COUNT = 8;
 
 export interface Point2D {

@@ -58,21 +58,22 @@ function makeQuestionRow(
 }
 
 /**
- * Build the canonical 8-digit vertical No. NDP Pelajar bubble grid.
- * Shared across ALL custom question counts (1..100).
+ * Build a large, spacious 8-digit vertical No. NDP Pelajar bubble grid.
+ * Because max question count is 50, the NDP grid enjoys generous 44px column spacing,
+ * 26.8px row spacing, 28x24 write-in boxes, and large r=10.6px bubbles.
  */
 function buildNdpGrid(): {
   box: { x: number; y: number; w: number; h: number };
   digits: StudentIdDigitGroup[];
 } {
-  const box = { x: 98, y: 186, w: 328, h: 242 };
+  const box = { x: 98, y: 190, w: 392, h: 326 };
   const digits: StudentIdDigitGroup[] = [];
-  const startX = 136;
-  const colStep = 36;
-  const headerY = 216;
-  const startY = 238;
-  const rowStep = 20.0;
-  const r = 8.0;
+  const startX = 140;
+  const colStep = 44;
+  const headerY = 230;
+  const startY = 262;
+  const rowStep = 26.8;
+  const r = 10.6;
 
   for (let d = 0; d < NDP_DIGIT_COUNT; d++) {
     const cx = startX + d * colStep;
@@ -97,17 +98,17 @@ function buildNdpGrid(): {
 }
 
 /**
- * Dynamically generate a pixel-accurate OMR Answer Sheet template for ANY manual question count (1..100)
+ * Dynamically generate a pixel-accurate OMR Answer Sheet template for ANY manual question count (1..50)
  * with A–D choices grouped cleanly into 5-row blocks (1–5, gap, 6–10, gap, 11–15, ...),
- * larger title & student info header, 8-digit No. NDP grid, and split bottom-right MARKAH (Betul + %) box.
+ * larger title & student info header, extra-spacious 8-digit No. NDP grid, and split bottom-right MARKAH box.
  */
 export function buildSheetTemplate(rawQuestionCount: number): AnswerSheetTemplate {
   const questionCount = clampQuestionCount(rawQuestionCount);
   const ndp = buildNdpGrid();
   const questions: QuestionBubbleRow[] = [];
 
-  // Dedicated lower question zone: x=[98..802], y=[460..1034]
-  const areaTop = 460;
+  // Dedicated lower question zone: x=[98..802], y=[550..1034] (ample clearance above scoreBoxRect y=1046)
+  const areaTop = 550;
   const areaBottom = 1034;
 
   let colStarts: number[];
@@ -118,6 +119,7 @@ export function buildSheetTemplate(rawQuestionCount: number): AnswerSheetTemplat
   let groupGap: number;
 
   if (questionCount <= 10) {
+    // 1 centered column (up to 2 blocks of 5)
     colStarts = [385];
     colStep = 50;
     labelOffset = 44;
@@ -125,6 +127,7 @@ export function buildSheetTemplate(rawQuestionCount: number): AnswerSheetTemplat
     maxRowStep = 43;
     groupGap = 18;
   } else if (questionCount <= 20) {
+    // 2 columns x up to 10 rows (2 blocks of 5 per col)
     colStarts = [204, 560];
     colStep = 46;
     labelOffset = 40;
@@ -132,6 +135,7 @@ export function buildSheetTemplate(rawQuestionCount: number): AnswerSheetTemplat
     maxRowStep = 43;
     groupGap = 18;
   } else if (questionCount <= 30) {
+    // 3 columns x up to 10 rows (2 blocks of 5 per col)
     colStarts = [166, 400, 634];
     colStep = 36;
     labelOffset = 34;
@@ -139,33 +143,21 @@ export function buildSheetTemplate(rawQuestionCount: number): AnswerSheetTemplat
     maxRowStep = 43;
     groupGap = 18;
   } else if (questionCount <= 45) {
+    // 3 columns x up to 15 rows (3 blocks of 5 per col)
     colStarts = [166, 400, 634];
     colStep = 36;
     labelOffset = 34;
     r = 10.6;
-    maxRowStep = 33.5;
+    maxRowStep = 30.8;
     groupGap = 14;
-  } else if (questionCount <= 60) {
-    colStarts = [148, 330, 512, 694];
-    colStep = 31;
-    labelOffset = 28;
-    r = 9.8;
-    maxRowStep = 33.5;
-    groupGap = 14;
-  } else if (questionCount <= 80) {
-    colStarts = [148, 330, 512, 694];
-    colStep = 31;
-    labelOffset = 28;
-    r = 9.0;
-    maxRowStep = 26.5;
-    groupGap = 10;
   } else {
+    // 4 columns x up to 15 rows (46..50 -> cols 1-15, 16-30, 31-45, 46-50)
     colStarts = [148, 330, 512, 694];
     colStep = 31;
     labelOffset = 28;
-    r = 8.2;
-    maxRowStep = 22.0;
-    groupGap = 7;
+    r = 10.2;
+    maxRowStep = 30.8;
+    groupGap = 14;
   }
 
   const numCols = colStarts.length;
@@ -200,7 +192,7 @@ export function buildSheetTemplate(rawQuestionCount: number): AnswerSheetTemplat
   }
 
   return {
-    id: `custom-${questionCount}q-abcd-g5`,
+    id: `custom-${questionCount}q-abcd-g5-ndplg`,
     name: `Borang OMR ${questionCount} Soalan (A–D)`,
     questionCount,
     warpWidth: WARP_W,
@@ -211,7 +203,7 @@ export function buildSheetTemplate(rawQuestionCount: number): AnswerSheetTemplat
     curveFiducialSize: 22,
     orientationDot: ORIENTATION_DOT,
     orientationBlank: ORIENTATION_BLANK,
-    nameCropRect: { x: 98, y: 114, w: 704, h: 64 },
+    nameCropRect: { x: 98, y: 114, w: 704, h: 66 },
     scoreBoxRect: { x: 588, y: 1046, w: 214, h: 68 },
     studentIdLayout: 'vertical',
     studentIdBox: ndp.box,

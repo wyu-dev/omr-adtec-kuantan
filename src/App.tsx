@@ -41,7 +41,7 @@ import { StudentsManager } from './components/StudentsManager';
 
 type TabId = 'scan' | 'key' | 'papers' | 'analysis' | 'students' | 'sheets';
 
-const QUICK_QUESTION_PRESETS = [10, 15, 20, 25, 30, 40, 50, 60, 100];
+const QUICK_QUESTION_PRESETS = [5, 10, 15, 20, 25, 30, 35, 40, 45, 50];
 
 export function App() {
   const [quizzes, setQuizzes] = useState<Quiz[]>(() => loadQuizzes());
@@ -216,7 +216,7 @@ export function App() {
                 Sistem Semakan <span className="text-amber-500">OMR</span>
               </h1>
               <p className="text-[11px] font-medium text-slate-500">
-                Pengimbas Kertas Jawapan Kamera • No. NDP 8 Digit
+                Pengimbas OMR Kamera • No. NDP 8 Digit • Simpanan Lokal Peranti
               </p>
             </div>
           </div>
@@ -475,7 +475,7 @@ export function App() {
               <img src={ADTEC_LOGO_DATA_URL} alt="ADTEC JTM Kuantan" className="h-7 w-auto" />
             </div>
             <p className="text-xs text-slate-500">
-              Tetapkan sebarang bilangan soalan secara manual (1 hingga 100 soalan). Borang OMR & pengimbas kamera akan dijana secara automatik.
+              Tetapkan sebarang bilangan soalan secara manual (1 hingga 50 soalan). Borang OMR & pengimbas kamera akan dijana secara automatik.
             </p>
 
             <div className="mt-4 space-y-3.5">
