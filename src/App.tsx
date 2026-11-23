@@ -518,7 +518,14 @@ export function App() {
         )}
 
         {activeTab === 'students' && (
-          <StudentsManager students={students} onChangeStudents={setStudents} />
+          <StudentsManager
+            students={students}
+            quizzes={quizzes}
+            papers={papers}
+            instructor={instructor}
+            onChangeStudents={setStudents}
+            onInspectPaper={(paperId) => setReviewPaperId(paperId)}
+          />
         )}
 
         {activeQuiz && activeTab === 'sheets' && (

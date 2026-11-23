@@ -50,4 +50,18 @@
     border: none !important;
     page-break-after: avoid;
   }
+  .print-grade-report {
+    display: block !important;
+    width: 100% !important;
+    border: none !important;
+    box-shadow: none !important;
+    border-radius: 0 !important;
+  }
+  .print-grade-report table {
+    border-collapse: collapse !important;
+  }
+  .print-grade-report th,
+  .print-grade-report td {
+    border: 1px solid #cbd5e1 !important;
+  }
 }
