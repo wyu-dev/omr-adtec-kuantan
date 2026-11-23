@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   BarChart3,
+  BookOpen,
   Camera,
   CheckSquare,
   Download,
@@ -46,12 +47,22 @@ import { ItemAnalysisView } from './components/ItemAnalysisView';
 import { PrintableSheetsView } from './components/PrintableSheetsView';
 import { StudentsManager } from './components/StudentsManager';
 import { InstructorModal } from './components/InstructorModal';
+import { LandingPage } from './components/LandingPage';
 
 type TabId = 'scan' | 'key' | 'papers' | 'analysis' | 'students' | 'sheets';
 
+const LANDING_SEEN_KEY = 'adtec_kuantan_omr_seen_landing_v1';
 const QUICK_QUESTION_PRESETS = [5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 60];
 
 export function App() {
+  const [showLanding, setShowLanding] = useState<boolean>(() => {
+    if (typeof window !== 'undefined' && window.location.hash === '#panduan') return true;
+    try {
+      return localStorage.getItem(LANDING_SEEN_KEY) !== '1';
+    } catch {
+      return true;
+    }
+  });
   const [quizzes, setQuizzes] = useState<Quiz[]>(() => loadQuizzes());
   const [activeQuizId, setActiveQuizId] = useState<string>(() => loadQuizzes()[0]?.id ?? '');
   const [students, setStudents] = useState<Student[]>(() => loadStudents());
@@ -267,6 +278,35 @@ export function App() {
     { id: 'sheets', shortLabel: 'Cetak', label: 'Cetak Borang', icon: <Printer className="h-5 w-5" /> },
   ];
 
+  const handleEnterApp = (targetTab?: TabId) => {
+    try {
+      localStorage.setItem(LANDING_SEEN_KEY, '1');
+    } catch {
+      // ignore
+    }
+    if (window.location.hash === '#panduan') {
+      window.history.replaceState(null, '', window.location.pathname + window.location.search);
+    }
+    if (targetTab) {
+      if (targetTab === 'scan') setScanMode('grade');
+      setActiveTab(targetTab);
+    }
+    setShowLanding(false);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  if (showLanding) {
+    return (
+      <LandingPage
+        onEnterApp={handleEnterApp}
+        onOpenInstructorSetup={() => setShowInstructorModal(true)}
+        canInstallPwa={Boolean(installPrompt)}
+        onInstallPwa={handleInstallPwa}
+        hasInstructorName={Boolean(instructor.name.trim())}
+      />
+    );
+  }
+
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900">
       {/* Compact Mobile-First Top Header */}
@@ -296,6 +336,20 @@ export function App() {
 
           {/* Right Action Controls */}
           <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
+            {/* Reopen Landing Page / Panduan Pengguna */}
+            <button
+              type="button"
+              onClick={() => {
+                setShowLanding(true);
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+              }}
+              className="inline-flex items-center gap-1 rounded-xl border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-bold text-slate-700 transition active:scale-95 hover:bg-slate-100"
+              title="Buka halaman panduan cara guna sistem OMR"
+            >
+              <BookOpen className="h-3.5 w-3.5 text-blue-800" />
+              <span className="hidden sm:inline">Panduan</span>
+            </button>
+
             {/* Lecturer Profile Pill (saved once per PWA!) */}
             <button
               type="button"
