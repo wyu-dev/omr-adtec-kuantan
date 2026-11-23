@@ -1,19 +1,40 @@
-import { ANSWER_CHOICES, AnswerChoice, AnswerSheetTemplate, NDP_DIGIT_COUNT } from '../types';
+import {
+  ANSWER_CHOICES,
+  AnswerChoice,
+  AnswerSheetTemplate,
+  CourseCode,
+  InstructorProfile,
+  NDP_DIGIT_COUNT,
+  SemesterCode,
+} from '../types';
 import { ADTEC_LOGO_DATA_URL } from '../assets/adtecLogo';
 import { solveHomography, warpPerspective } from './omrEngine';
 
+export interface SheetRenderOptions {
+  quizTitle?: string;
+  qrDataUrl?: string;
+  instructor?: InstructorProfile;
+}
+
 /**
  * Render an exact vector SVG of the ADTEC JTM Kampus Kuantan OMR Answer Sheet:
- * - Official logo centered at top
- * - Large Title & spacious 5-field header box (Nama, No. Kad Pengenalan, NDP, Kursus, Semester)
- * - Extra-large 8-digit No. NDP grid + Arahan Menjawab
- * - Dynamic 1..50 questions (A–D) grouped neatly in 5-row blocks with clear gaps & A–D headers
- * - Official bottom-right KEPUTUSAN MARKAH box (Jawapan Betul + Peratus)
+ * - Official logo + Quiz Title (top left/center) + Scannable Quiz QR Code (top right)
+ * - 3-field top info box (NAMA, NO. KAD PENGENALAN, TARIKH) with dedicated wide NAMA row for OCR
+ * - Left: 8-digit No. NDP grid | Right: Horizontal KURSUS (9) + Horizontal SEMESTER (1-5) + Arahan
+ * - Dynamic 1..60 A–D questions grouped in 5-row blocks with adaptive bubble size
+ * - Bottom-left: Disemak oleh (Tandatangan & Nama Pengajar) | Bottom-right: KEPUTUSAN MARKAH (Betul + %)
  */
 export function buildSheetSvgMarkup(
   template: AnswerSheetTemplate,
-  quizTitle = 'Penilaian Teori / Ujian OMR'
+  options?: SheetRenderOptions | string
 ): string {
+  const opts: SheetRenderOptions =
+    typeof options === 'string' ? { quizTitle: options } : options ?? {};
+  const quizTitle = opts.quizTitle || 'Penilaian Teori / Ujian OMR';
+  const qrDataUrl = opts.qrDataUrl;
+  const instructorName = opts.instructor?.name?.trim() || '';
+  const instructorSig = opts.instructor?.signatureDataUrl;
+
   const { warpWidth: W, warpHeight: H, fiducialSize: FS } = template;
   const parts: string[] = [];
 
@@ -42,146 +63,173 @@ export function buildSheetSvgMarkup(
     `<circle cx="${template.orientationDot.x}" cy="${template.orientationDot.y}" r="${template.orientationDot.r}" fill="#000000"/>`
   );
 
-  // Official ADTEC JTM Kampus Kuantan Logo (exact 2.60:1 ratio)
+  // Official ADTEC JTM Kampus Kuantan Logo (centered across x=138..694 -> center x=416)
   parts.push(
-    `<image href="${ADTEC_LOGO_DATA_URL}" x="375" y="10" width="150" height="58" preserveAspectRatio="xMidYMid meet"/>`
+    `<image href="${ADTEC_LOGO_DATA_URL}" x="341" y="10" width="150" height="58" preserveAspectRatio="xMidYMid meet"/>`
   );
 
-  // Larger Quiz Title & Subtitle
+  // Larger Quiz Title & Subtitle (centered at x=416 so zero collision with Top-Right QR at x=706..798)
   parts.push(
-    `<text x="${W / 2}" y="89" text-anchor="middle" font-size="18.5" font-weight="800" fill="#1e3a8a">${escapeXml(quizTitle)}</text>`
+    `<text x="416" y="87" text-anchor="middle" font-size="18" font-weight="800" fill="#1e3a8a">${escapeXml(quizTitle)}</text>`
   );
   parts.push(
-    `<text x="${W / 2}" y="106" text-anchor="middle" font-size="11.2" fill="#475569">Borang Jawapan OMR (${template.questionCount} Soalan • Pilihan A–D) • Hitamkan bulatan sepenuhnya</text>`
+    `<text x="416" y="103" text-anchor="middle" font-size="10.8" fill="#475569">Borang Jawapan OMR (${template.questionCount} Soalan • Pilihan A–D) • Hitamkan bulatan sepenuhnya</text>`
   );
 
-  // Large, spacious Student Info Header Box (5 Fields in 2 Clean Rows)
+  // Top-Right Quiz Answer-Key QR Code Box (x=706..798, y=10..102)
+  const qr = template.qrRect;
+  parts.push(
+    `<rect x="${qr.x - 2}" y="${qr.y - 2}" width="${qr.w + 4}" height="${qr.h + 4}" rx="4" fill="#ffffff" stroke="#cbd5e1" stroke-width="1.2"/>`
+  );
+  if (qrDataUrl) {
+    parts.push(
+      `<image href="${qrDataUrl}" x="${qr.x}" y="${qr.y}" width="${qr.w}" height="${qr.h}" preserveAspectRatio="xMidYMid meet"/>`
+    );
+  } else {
+    parts.push(
+      `<text x="${qr.x + qr.w / 2}" y="${qr.y + qr.h / 2 + 4}" text-anchor="middle" font-size="10" font-weight="700" fill="#94a3b8">QR SKEMA</text>`
+    );
+  }
+  parts.push(
+    `<text x="${qr.x + qr.w / 2}" y="${qr.y + qr.h + 9}" text-anchor="middle" font-size="7.5" font-weight="700" fill="#64748b">QR SKEMA AUTO</text>`
+  );
+
+  // Top Student Info Header Box (3 Fields: NAMA, NO. KAD PENGENALAN, TARIKH)
   const nb = template.nameCropRect;
   parts.push(
     `<rect x="${nb.x}" y="${nb.y}" width="${nb.w}" height="${nb.h}" rx="6" fill="none" stroke="#1e3a8a" stroke-width="1.8"/>`
   );
 
-  // Row 1: NAMA | NO. KAD PENGENALAN
+  // Row 1: Full-width spacious NAMA line (ideal for handwriting OCR!)
   const r1y = nb.y + 25;
   parts.push(
     `<text x="${nb.x + 12}" y="${r1y}" font-size="12.5" font-weight="700" fill="#0f172a">NAMA:</text>`
   );
   parts.push(
-    `<line x1="${nb.x + 60}" y1="${r1y + 3}" x2="${nb.x + 366}" y2="${r1y + 3}" stroke="#94a3b8" stroke-width="1.3"/>`
-  );
-  parts.push(
-    `<text x="${nb.x + 376}" y="${r1y}" font-size="12.5" font-weight="700" fill="#0f172a">NO. KAD PENGENALAN:</text>`
-  );
-  parts.push(
-    `<line x1="${nb.x + 536}" y1="${r1y + 3}" x2="${nb.x + nb.w - 12}" y2="${r1y + 3}" stroke="#94a3b8" stroke-width="1.3"/>`
+    `<line x1="${nb.x + 62}" y1="${r1y + 3}" x2="${nb.x + nb.w - 14}" y2="${r1y + 3}" stroke="#94a3b8" stroke-width="1.3"/>`
   );
 
-  // Row 2: NDP (wider space) | KURSUS | SEMESTER
+  // Row 2: NO. KAD PENGENALAN | TARIKH
   const r2y = nb.y + 54;
   parts.push(
-    `<text x="${nb.x + 12}" y="${r2y}" font-size="12.5" font-weight="700" fill="#0f172a">NDP:</text>`
+    `<text x="${nb.x + 12}" y="${r2y}" font-size="12.5" font-weight="700" fill="#0f172a">NO. KAD PENGENALAN:</text>`
   );
   parts.push(
-    `<line x1="${nb.x + 48}" y1="${r2y + 3}" x2="${nb.x + 196}" y2="${r2y + 3}" stroke="#94a3b8" stroke-width="1.3"/>`
+    `<line x1="${nb.x + 174}" y1="${r2y + 3}" x2="${nb.x + 448}" y2="${r2y + 3}" stroke="#94a3b8" stroke-width="1.3"/>`
   );
   parts.push(
-    `<text x="${nb.x + 206}" y="${r2y}" font-size="12.5" font-weight="700" fill="#0f172a">KURSUS:</text>`
+    `<text x="${nb.x + 462}" y="${r2y}" font-size="12.5" font-weight="700" fill="#0f172a">TARIKH:</text>`
   );
   parts.push(
-    `<line x1="${nb.x + 271}" y1="${r2y + 3}" x2="${nb.x + 516}" y2="${r2y + 3}" stroke="#94a3b8" stroke-width="1.3"/>`
-  );
-  parts.push(
-    `<text x="${nb.x + 526}" y="${r2y}" font-size="12.5" font-weight="700" fill="#0f172a">SEMESTER:</text>`
-  );
-  parts.push(
-    `<line x1="${nb.x + 608}" y1="${r2y + 3}" x2="${nb.x + nb.w - 12}" y2="${r2y + 3}" stroke="#94a3b8" stroke-width="1.3"/>`
+    `<line x1="${nb.x + 524}" y1="${r2y + 3}" x2="${nb.x + nb.w - 14}" y2="${r2y + 3}" stroke="#94a3b8" stroke-width="1.3"/>`
   );
 
-  // Extra-Large 8-Digit NO. NDP Pelajar Bubble Grid Box (Left, w=392, h=326)
+  // Left: Large 8-Digit NO. NDP Pelajar Bubble Grid Box (x=98..482, y=186..514)
   const sb = template.studentIdBox;
   parts.push(
     `<rect x="${sb.x}" y="${sb.y}" width="${sb.w}" height="${sb.h}" rx="7" fill="none" stroke="#1e3a8a" stroke-width="1.8"/>`
   );
   parts.push(
-    `<text x="${sb.x + sb.w / 2}" y="${sb.y + 20}" text-anchor="middle" font-size="13" font-weight="800" fill="#1e3a8a">NO. NDP PELAJAR (8 DIGIT)</text>`
+    `<text x="${sb.x + sb.w / 2}" y="${sb.y + 19}" text-anchor="middle" font-size="12.5" font-weight="800" fill="#1e3a8a">NO. NDP PELAJAR (8 DIGIT)</text>`
   );
 
   for (const dg of template.studentIdDigits) {
-    // Larger write-in digit boxes (28x24) above each column
     parts.push(
-      `<rect x="${dg.headerX - 14}" y="${dg.headerY - 12}" width="28" height="24" rx="3.5" fill="#f8fafc" stroke="#475569" stroke-width="1.4"/>`
+      `<rect x="${dg.headerX - 13}" y="${dg.headerY - 11}" width="26" height="22" rx="3.5" fill="#f8fafc" stroke="#475569" stroke-width="1.4"/>`
     );
     for (const b of dg.bubbles) {
       parts.push(
         `<circle cx="${b.x}" cy="${b.y}" r="${b.r}" fill="#ffffff" stroke="#64748b" stroke-width="1.45"/>`
       );
       parts.push(
-        `<text x="${b.x}" y="${b.y + 3.8}" text-anchor="middle" font-size="10.5" fill="#94a3b8">${b.label}</text>`
+        `<text x="${b.x}" y="${b.y + 3.6}" text-anchor="middle" font-size="10.2" fill="#94a3b8">${b.label}</text>`
       );
     }
   }
 
-  // Instructions Card (Right of Extra-Large 8-Digit NDP Box, x=504..802, w=298, h=326)
-  const ix = 504;
-  const iy = sb.y;
-  const iw = 298;
-  const ih = sb.h;
+  // Right-Top: Horizontal KURSUS Box (AUTO, CSB, FSL, IT, JE, KIMP, REL, TPM, TPP)
+  const cb = template.courseBox;
   parts.push(
-    `<rect x="${ix}" y="${iy}" width="${iw}" height="${ih}" rx="7" fill="#f8fafc" stroke="#cbd5e1" stroke-width="1.5"/>`
+    `<rect x="${cb.x}" y="${cb.y}" width="${cb.w}" height="${cb.h}" rx="7" fill="none" stroke="#1e3a8a" stroke-width="1.6"/>`
   );
   parts.push(
-    `<text x="${ix + iw / 2}" y="${iy + 26}" text-anchor="middle" font-size="13.5" font-weight="800" fill="#1e3a8a">ARAHAN MENJAWAB</text>`
+    `<text x="${cb.x + cb.w / 2}" y="${cb.y + 17}" text-anchor="middle" font-size="11.5" font-weight="800" fill="#1e3a8a">KURSUS (HITAMKAN SATU)</text>`
+  );
+  for (const b of template.courseBubbles) {
+    parts.push(
+      `<text x="${b.x}" y="${b.y - b.r - 6}" text-anchor="middle" font-size="9.2" font-weight="700" fill="#1e293b">${b.label}</text>`
+    );
+    parts.push(
+      `<circle cx="${b.x}" cy="${b.y}" r="${b.r}" fill="#ffffff" stroke="#64748b" stroke-width="1.4"/>`
+    );
+  }
+
+  // Right-Mid: Horizontal SEMESTER Box (1, 2, 3, 4, 5)
+  const semb = template.semesterBox;
+  parts.push(
+    `<rect x="${semb.x}" y="${semb.y}" width="${semb.w}" height="${semb.h}" rx="7" fill="none" stroke="#1e3a8a" stroke-width="1.6"/>`
   );
   parts.push(
-    `<line x1="${ix + 16}" y1="${iy + 36}" x2="${ix + iw - 16}" y2="${iy + 36}" stroke="#e2e8f0" stroke-width="1.2"/>`
+    `<text x="${semb.x + semb.w / 2}" y="${semb.y + 17}" text-anchor="middle" font-size="11.5" font-weight="800" fill="#1e3a8a">SEMESTER (HITAMKAN SATU)</text>`
+  );
+  for (const b of template.semesterBubbles) {
+    parts.push(
+      `<text x="${b.x}" y="${b.y - b.r - 5}" text-anchor="middle" font-size="10.5" font-weight="700" fill="#1e293b">Sem ${b.label}</text>`
+    );
+    parts.push(
+      `<circle cx="${b.x}" cy="${b.y}" r="${b.r}" fill="#ffffff" stroke="#64748b" stroke-width="1.45"/>`
+    );
+    parts.push(
+      `<text x="${b.x}" y="${b.y + 4}" text-anchor="middle" font-size="10.5" fill="#94a3b8">${b.label}</text>`
+    );
+  }
+
+  // Right-Bot: Compact ARAHAN MENJAWAB Card (x=496..802, y=372..514, h=142)
+  const ix = 496;
+  const iy = 372;
+  const iw = 306;
+  const ih = 142;
+  parts.push(
+    `<rect x="${ix}" y="${iy}" width="${iw}" height="${ih}" rx="7" fill="#f8fafc" stroke="#cbd5e1" stroke-width="1.4"/>`
   );
   parts.push(
-    `<text x="${ix + 16}" y="${iy + 60}" font-size="11.5" fill="#334155">1. Tulis &amp; hitamkan 8 digit No. NDP</text>`
+    `<text x="${ix + iw / 2}" y="${iy + 19}" text-anchor="middle" font-size="11.5" font-weight="800" fill="#1e3a8a">ARAHAN MENJAWAB</text>`
   );
   parts.push(
-    `<text x="${ix + 30}" y="${iy + 75}" font-size="11.5" fill="#334155">anda dengan tepat di sebelah kiri.</text>`
+    `<text x="${ix + 14}" y="${iy + 39}" font-size="10.2" fill="#334155">1. Tulis NAMA dengan huruf besar yang jelas.</text>`
   );
   parts.push(
-    `<text x="${ix + 16}" y="${iy + 101}" font-size="11.5" fill="#334155">2. Guna pensel 2B atau pen gelap.</text>`
+    `<text x="${ix + 14}" y="${iy + 55}" font-size="10.2" fill="#334155">2. Hitamkan 8 digit NDP, KURSUS &amp; SEMESTER.</text>`
   );
   parts.push(
-    `<text x="${ix + 16}" y="${iy + 127}" font-size="11.5" fill="#334155">3. Hitamkan satu pilihan (A, B, C, D).</text>`
-  );
-  parts.push(
-    `<text x="${ix + 16}" y="${iy + 153}" font-size="11.5" fill="#334155">4. Padam bersih jika tukar jawapan.</text>`
-  );
-  parts.push(
-    `<text x="${ix + 16}" y="${iy + 179}" font-size="11.5" fill="#334155">5. Jangan conteng 4 petak penjuru.</text>`
+    `<text x="${ix + 14}" y="${iy + 71}" font-size="10.2" fill="#334155">3. Guna pensel 2B/pen gelap. Jangan conteng QR/penjuru.</text>`
   );
 
-  // Visual Correct vs Incorrect Mark Legend
+  // Compact Visual Correct vs Incorrect Legend
   parts.push(
-    `<circle cx="${ix + 46}" cy="${iy + 226}" r="12" fill="#111827" stroke="#111827" stroke-width="1.5"/>`
+    `<circle cx="${ix + 44}" cy="${iy + 96}" r="9.5" fill="#111827" stroke="#111827" stroke-width="1.4"/>`
   );
   parts.push(
-    `<text x="${ix + 67}" y="${iy + 230}" font-size="12.5" font-weight="700" fill="#15803d">BETUL</text>`
+    `<text x="${ix + 60}" y="${iy + 100}" font-size="11" font-weight="700" fill="#15803d">BETUL</text>`
   );
   parts.push(
-    `<circle cx="${ix + 166}" cy="${iy + 226}" r="12" fill="#ffffff" stroke="#475569" stroke-width="1.5"/>`
+    `<circle cx="${ix + 160}" cy="${iy + 96}" r="9.5" fill="#ffffff" stroke="#475569" stroke-width="1.4"/>`
   );
   parts.push(
-    `<line x1="${ix + 158}" y1="${iy + 218}" x2="${ix + 174}" y2="${iy + 234}" stroke="#dc2626" stroke-width="2.2"/>`
+    `<line x1="${ix + 153}" y1="${iy + 89}" x2="${ix + 167}" y2="${iy + 103}" stroke="#dc2626" stroke-width="2"/>`
   );
   parts.push(
-    `<line x1="${ix + 174}" y1="${iy + 218}" x2="${ix + 158}" y2="${iy + 234}" stroke="#dc2626" stroke-width="2.2"/>`
+    `<line x1="${ix + 167}" y1="${iy + 89}" x2="${ix + 153}" y2="${iy + 103}" stroke="#dc2626" stroke-width="2"/>`
   );
   parts.push(
-    `<text x="${ix + 187}" y="${iy + 230}" font-size="12.5" font-weight="700" fill="#b91c1c">SALAH</text>`
+    `<text x="${ix + 176}" y="${iy + 100}" font-size="11" font-weight="700" fill="#b91c1c">SALAH</text>`
   );
 
   parts.push(
-    `<rect x="${ix + 16}" y="${iy + 266}" width="${iw - 32}" height="40" rx="6" fill="#eff6ff" stroke="#bfdbfe" stroke-width="1.2"/>`
+    `<rect x="${ix + 14}" y="${iy + 114}" width="${iw - 28}" height="20" rx="4" fill="#eff6ff" stroke="#bfdbfe" stroke-width="1"/>`
   );
   parts.push(
-    `<text x="${ix + iw / 2}" y="${iy + 283}" text-anchor="middle" font-size="10.8" font-weight="700" fill="#1e3a8a">ADTEC JTM KAMPUS KUANTAN</text>`
-  );
-  parts.push(
-    `<text x="${ix + iw / 2}" y="${iy + 299}" text-anchor="middle" font-size="10.5" font-weight="700" fill="#d97706">${template.questionCount} SOALAN • PILIHAN A–D</text>`
+    `<text x="${ix + iw / 2}" y="${iy + 127.5}" text-anchor="middle" font-size="9.6" font-weight="700" fill="#1e3a8a">ADTEC JTM KAMPUS KUANTAN • ${template.questionCount} SOALAN (A–D)</text>`
   );
 
   // Divider line above Question Grid
@@ -205,7 +253,7 @@ export function buildSheetSvgMarkup(
     }
   }
 
-  // Draw crisp subtle group backdrop cards around each 5-question block (1–5, 6–10, 11–15...)
+  // Group backdrop cards around each 5-question block (1–5, 6–10, 11–15...)
   const groups = new Map<string, typeof template.questions>();
   for (const q of template.questions) {
     const colKey = Math.round(q.bubbles.A.x);
@@ -231,7 +279,7 @@ export function buildSheetSvgMarkup(
     );
   }
 
-  // Question Bubbles (dynamic 1..60, A–D only; scales up smoothly when question count is smaller)
+  // Question Bubbles (dynamic 1..60, A–D only)
   for (const q of template.questions) {
     const firstB = q.bubbles.A;
     parts.push(
@@ -249,7 +297,38 @@ export function buildSheetSvgMarkup(
     }
   }
 
-  // Official Bottom-Right Score Box: Split into JAWAPAN BETUL (cth: __/25) + PERATUS (___%)
+  // Bottom-Left: Official "Disemak oleh:" Box (Tandatangan & Nama Pengajar)
+  const rv = template.reviewerBoxRect;
+  parts.push(
+    `<rect x="${rv.x}" y="${rv.y}" width="${rv.w}" height="${rv.h}" rx="6" fill="#ffffff" stroke="#cbd5e1" stroke-width="1.5"/>`
+  );
+  parts.push(
+    `<text x="${rv.x + 12}" y="${rv.y + 18}" font-size="11" font-weight="700" fill="#1e3a8a">Disemak oleh:</text>`
+  );
+  // Signature line (left half of reviewer box)
+  if (instructorSig) {
+    parts.push(
+      `<image href="${instructorSig}" x="${rv.x + 102}" y="${rv.y + 4}" width="130" height="42" preserveAspectRatio="xMidYMid meet"/>`
+    );
+  }
+  parts.push(
+    `<line x1="${rv.x + 98}" y1="${rv.y + 46}" x2="${rv.x + 252}" y2="${rv.y + 46}" stroke="#94a3b8" stroke-width="1.2" stroke-dasharray="3,2"/>`
+  );
+  parts.push(
+    `<text x="${rv.x + 175}" y="${rv.y + 60}" text-anchor="middle" font-size="9.5" fill="#64748b">(Tandatangan)</text>`
+  );
+  // Instructor Name line (right half of reviewer box)
+  parts.push(
+    `<line x1="${rv.x + 270}" y1="${rv.y + 46}" x2="${rv.x + rv.w - 14}" y2="${rv.y + 46}" stroke="#94a3b8" stroke-width="1.2"/>`
+  );
+  parts.push(
+    `<text x="${rv.x + 270 + (rv.w - 284) / 2}" y="${rv.y + 41}" text-anchor="middle" font-size="11.5" font-weight="700" fill="#0f172a">${escapeXml(instructorName)}</text>`
+  );
+  parts.push(
+    `<text x="${rv.x + 270 + (rv.w - 284) / 2}" y="${rv.y + 60}" text-anchor="middle" font-size="9.5" fill="#64748b">(${escapeXml(instructorName ? 'Nama Pengajar' : 'Nama Pengajar')})</text>`
+  );
+
+  // Bottom-Right: Split KEPUTUSAN MARKAH Box (JAWAPAN BETUL + PERATUS)
   const sc = template.scoreBoxRect;
   const midX = sc.x + Math.round(sc.w * 0.5);
   parts.push(
@@ -277,12 +356,9 @@ export function buildSheetSvgMarkup(
     `<text x="${sc.x + sc.w - 12}" y="${sc.y + sc.h - 10}" text-anchor="end" font-size="18" font-weight="700" fill="#cbd5e1">%</text>`
   );
 
-  // Footer
+  // Subtle footer strip below boxes (y=1132..1142, clear of bottom fiducials x=33..77 and x=823..867)
   parts.push(
-    `<text x="98" y="1096" font-size="10" font-weight="700" fill="#475569">ADTEC JTM KAMPUS KUANTAN • SISTEM SEMAKAN OMR</text>`
-  );
-  parts.push(
-    `<text x="98" y="1111" font-size="9.5" fill="#94a3b8">Pastikan 4 petak hitam di penjuru kertas jelas dan tidak dilipat semasa imbasan kamera.</text>`
+    `<text x="450" y="1148" text-anchor="middle" font-size="9.5" fill="#94a3b8">ADTEC JTM KAMPUS KUANTAN • SISTEM SEMAKAN OMR</text>`
   );
 
   parts.push('</svg>');
@@ -298,16 +374,29 @@ function escapeXml(str: string): string {
 }
 
 /**
- * Generate a realistic synthetic camera photo of a filled ADTEC JTM answer sheet.
+ * Generate a realistic synthetic camera photo of a filled ADTEC JTM answer sheet
+ * including the real top-right Quiz QR code, 8-digit NDP, KURSUS & SEMESTER bubbles,
+ * handwritten-style NAMA (readable by OCR!), and A–D answers.
  */
 export async function generateSyntheticCameraPhoto(
   template: AnswerSheetTemplate,
   answers: Record<number, AnswerChoice[]>,
   studentCode: string,
   studentName: string,
-  options?: { rotate180?: boolean; quizTitle?: string }
+  options?: {
+    rotate180?: boolean;
+    quizTitle?: string;
+    qrDataUrl?: string;
+    course?: CourseCode | '';
+    semester?: SemesterCode | '';
+    instructor?: InstructorProfile;
+  }
 ): Promise<{ canvas: HTMLCanvasElement; dataUrl: string }> {
-  const svg = buildSheetSvgMarkup(template, options?.quizTitle ?? 'Penilaian Teori OMR');
+  const svg = buildSheetSvgMarkup(template, {
+    quizTitle: options?.quizTitle ?? 'Penilaian Teori OMR',
+    qrDataUrl: options?.qrDataUrl,
+    instructor: options?.instructor,
+  });
   const blob = new Blob([svg], { type: 'image/svg+xml;charset=utf-8' });
   const url = URL.createObjectURL(blob);
 
@@ -325,20 +414,22 @@ export async function generateSyntheticCameraPhoto(
   const ctx = flatCanvas.getContext('2d')!;
   ctx.drawImage(img, 0, 0);
 
-  const padded = studentCode.replace(/\D/g, '').padStart(NDP_DIGIT_COUNT, '0').slice(0, NDP_DIGIT_COUNT);
+  const padded = studentCode
+    .replace(/\D/g, '')
+    .padStart(NDP_DIGIT_COUNT, '0')
+    .slice(0, NDP_DIGIT_COUNT);
 
-  // Write realistic handwritten student header info
+  // Write clear block-letter student name (Row 1) + No. K/P & Tarikh (Row 2)
   const nb = template.nameCropRect;
-  ctx.fillStyle = '#1e293b';
-  ctx.font = 'italic 17px Georgia, serif';
-  ctx.fillText(studentName, nb.x + 68, nb.y + 24);
-  ctx.fillText('030514-06-0821', nb.x + 542, nb.y + 24);
-  ctx.fillText(padded, nb.x + 56, nb.y + 53);
-  ctx.fillText('Teknologi Komputer', nb.x + 278, nb.y + 53);
-  ctx.fillText('Sem 2', nb.x + 616, nb.y + 53);
+  ctx.fillStyle = '#0f172a';
+  ctx.font = 'bold 18px sans-serif';
+  ctx.fillText(studentName.toUpperCase(), nb.x + 70, nb.y + 24);
+  ctx.font = 'italic 16px Georgia, serif';
+  ctx.fillText('030514-06-0821', nb.x + 184, nb.y + 53);
+  ctx.fillText(new Date().toLocaleDateString('ms-MY'), nb.x + 534, nb.y + 53);
 
   // Shade large 8-digit No. NDP bubbles + write digits in top boxes
-  ctx.font = 'bold 15px monospace';
+  ctx.font = 'bold 14px monospace';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   for (let d = 0; d < template.studentIdDigits.length; d++) {
@@ -351,6 +442,18 @@ export async function generateSyntheticCameraPhoto(
     if (b && !Number.isNaN(digit)) {
       drawRealisticBubbleFill(ctx, b.x, b.y, b.r);
     }
+  }
+
+  // Shade Horizontal KURSUS bubble
+  if (options?.course) {
+    const cb = template.courseBubbles.find((b) => b.label === options.course);
+    if (cb) drawRealisticBubbleFill(ctx, cb.x, cb.y, cb.r);
+  }
+
+  // Shade Horizontal SEMESTER bubble
+  if (options?.semester) {
+    const sb = template.semesterBubbles.find((b) => b.label === options.semester);
+    if (sb) drawRealisticBubbleFill(ctx, sb.x, sb.y, sb.r);
   }
 
   // Shade Question bubbles (A–D)
@@ -425,8 +528,8 @@ export async function generateSyntheticCameraPhoto(
         d[idx + 2] = 94;
         d[idx + 3] = 255;
       } else {
-        const light = 0.80 + 0.20 * (x / camW) - 0.12 * (y / camH);
-        const noise = (Math.random() - 0.5) * 6;
+        const light = 0.82 + 0.18 * (x / camW) - 0.10 * (y / camH);
+        const noise = (Math.random() - 0.5) * 5;
         d[idx] = Math.max(0, Math.min(255, d[idx] * light + noise));
         d[idx + 1] = Math.max(0, Math.min(255, d[idx + 1] * light + noise));
         d[idx + 2] = Math.max(0, Math.min(255, d[idx + 2] * light + noise));
@@ -454,7 +557,7 @@ function drawRealisticBubbleFill(
   ctx.save();
   const ox = (Math.random() - 0.5) * 1.4;
   const oy = (Math.random() - 0.5) * 1.4;
-  ctx.fillStyle = 'rgba(28, 32, 40, 0.92)';
+  ctx.fillStyle = 'rgba(24, 28, 36, 0.93)';
   ctx.beginPath();
   ctx.ellipse(
     cx + ox,

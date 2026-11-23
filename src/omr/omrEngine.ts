@@ -4,13 +4,20 @@ import {
   AnswerSheetTemplate,
   BubbleMarkStatus,
   CircleLoc,
+  COURSE_CODES,
+  CourseCode,
   FiducialDetectionResult,
   GradedPaper,
+  InstructorProfile,
   Point2D,
   QuestionDetection,
   Quiz,
   Rect2D,
+  SEMESTER_CODES,
+  SemesterCode,
 } from '../types';
+import { buildSheetTemplate } from './sheetTemplates';
+import { decodeQrFromWarpedSheet, parseQuizQrPayload } from '../utils/qrHelper';
 
 /** Convert RGBA ImageData to single-channel grayscale Uint8Array */
 export function toGrayscale(rgba: Uint8ClampedArray, width: number, height: number): Uint8Array {
@@ -728,28 +735,34 @@ function classifyRowScores<T extends string>(
  * Full end-to-end OMR grading pipeline:
  * 1. Homography perspective warp from detected 4 corner fiducials
  * 2. Orientation dot verification + auto-180° flip
- * 3. Curve & glare diagnostics
- * 4. Student ID bubble decoding
- * 5. Question bubble scoring & grading against Quiz answer key
- * 6. Visual green/red/amber annotation overlay + Name box crop
+ * 3. Top-right QR code decode -> automatic Quiz & Answer Key pairing!
+ * 4. Curve & glare diagnostics
+ * 5. 8-digit No. NDP + Horizontal KURSUS + Horizontal SEMESTER bubble decoding
+ * 6. Question bubble scoring & grading against the auto-paired (or fallback) Quiz answer key
+ * 7. Visual annotation overlay + Header/Name line crops for handwriting OCR
  */
 export function processAndGradeSheet(
   sourceImageData: ImageData,
   corners: [Point2D, Point2D, Point2D, Point2D],
-  template: AnswerSheetTemplate,
-  quiz: Quiz,
-  sharpness = 120
+  fallbackTemplate: AnswerSheetTemplate,
+  fallbackQuiz: Quiz,
+  sharpness = 120,
+  options?: {
+    allQuizzes?: Quiz[];
+    instructor?: InstructorProfile;
+    allowQrAutoPair?: boolean;
+  }
 ): GradedPaper {
   const t0 = performance.now();
 
-  // 1. Solve Homography & Warp into canonical template space
-  const H = solveHomography(template.primaryFiducials, corners);
+  // 1. Solve Homography & Warp into canonical 900x1200 template space
+  const H = solveHomography(fallbackTemplate.primaryFiducials, corners);
   let warped = warpPerspective(
     sourceImageData.data,
     sourceImageData.width,
     sourceImageData.height,
-    template.warpWidth,
-    template.warpHeight,
+    fallbackTemplate.warpWidth,
+    fallbackTemplate.warpHeight,
     H
   );
 
@@ -760,17 +773,17 @@ export function processAndGradeSheet(
     gray,
     warped.width,
     warped.height,
-    template.orientationDot.x,
-    template.orientationDot.y,
-    template.orientationDot.r * 0.7
+    fallbackTemplate.orientationDot.x,
+    fallbackTemplate.orientationDot.y,
+    fallbackTemplate.orientationDot.r * 0.7
   );
   const oriBlankMean = sampleCircleMean(
     gray,
     warped.width,
     warped.height,
-    template.orientationBlank.x,
-    template.orientationBlank.y,
-    template.orientationBlank.r * 0.7
+    fallbackTemplate.orientationBlank.x,
+    fallbackTemplate.orientationBlank.y,
+    fallbackTemplate.orientationBlank.r * 0.7
   );
   let rotated180 = false;
   if (oriBlankMean + 25 < oriDotMean) {
@@ -779,10 +792,31 @@ export function processAndGradeSheet(
     rotated180 = true;
   }
 
-  // 3. Curve check
+  // 3. Top-right QR Code Auto-Pairing!
+  let quiz = fallbackQuiz;
+  let template = fallbackTemplate;
+  let qrRaw: string | null = null;
+  let qrMatchedQuizId: string | undefined;
+  let qrMatchedQuizName: string | undefined;
+
+  if (options?.allowQrAutoPair !== false) {
+    qrRaw = decodeQrFromWarpedSheet(warped, fallbackTemplate.qrRect);
+    const parsed = parseQuizQrPayload(qrRaw);
+    if (parsed && options?.allQuizzes?.length) {
+      const matched = options.allQuizzes.find((q) => q.id === parsed.quizId);
+      if (matched) {
+        quiz = matched;
+        template = buildSheetTemplate(matched.questionCount);
+        qrMatchedQuizId = matched.id;
+        qrMatchedQuizName = matched.name;
+      }
+    }
+  }
+
+  // 4. Curve check
   const curveScore = evaluateCurveQuality(gray, warped.width, warped.height, template);
 
-  // 4. Measure every question bubble & Student ID bubble
+  // 5. Measure Question bubbles, 8-digit No. NDP bubbles, KURSUS bubbles, & SEMESTER bubbles
   const allDarkness: number[] = [];
   let brightBgCount = 0;
   let totalBubbles = 0;
@@ -811,10 +845,24 @@ export function processAndGradeSheet(
     rawIdScores.push(scores);
   }
 
+  const rawCourseScores = {} as Record<CourseCode, number>;
+  for (const cb of template.courseBubbles) {
+    const m = measureBubbleDarkness(gray, warped.width, warped.height, cb);
+    rawCourseScores[cb.label as CourseCode] = m.relativeDarkness;
+    allDarkness.push(m.relativeDarkness);
+  }
+
+  const rawSemesterScores = {} as Record<SemesterCode, number>;
+  for (const sb of template.semesterBubbles) {
+    const m = measureBubbleDarkness(gray, warped.width, warped.height, sb);
+    rawSemesterScores[sb.label as SemesterCode] = m.relativeDarkness;
+    allDarkness.push(m.relativeDarkness);
+  }
+
   const glareWarning = totalBubbles > 0 && brightBgCount / totalBubbles > 0.35;
   const { baseline, markThreshold } = computeAdaptiveThreshold(allDarkness);
 
-  // 5. Decode Student ID (5 digits)
+  // 6a. Decode 8-digit No. NDP
   const digitLabels = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9'];
   const decodedDigits: string[] = [];
   for (let d = 0; d < template.studentIdDigits.length; d++) {
@@ -823,7 +871,27 @@ export function processAndGradeSheet(
   }
   const studentCode = decodedDigits.every((c) => c === '_') ? '' : decodedDigits.join('');
 
-  // 6. Classify & grade every question
+  // 6b. Decode Horizontal KURSUS
+  const courseCls = classifyRowScores(
+    [...COURSE_CODES],
+    rawCourseScores,
+    baseline,
+    markThreshold
+  );
+  const detectedCourse: CourseCode | '' =
+    courseCls.status === 'single' ? courseCls.selected[0] : '';
+
+  // 6c. Decode Horizontal SEMESTER
+  const semCls = classifyRowScores(
+    [...SEMESTER_CODES],
+    rawSemesterScores,
+    baseline,
+    markThreshold
+  );
+  const detectedSemester: SemesterCode | '' =
+    semCls.status === 'single' ? semCls.selected[0] : '';
+
+  // 7. Classify & grade every question
   const questions: QuestionDetection[] = [];
   let score = 0;
   let maxScore = 0;
@@ -872,32 +940,59 @@ export function processAndGradeSheet(
     });
   }
 
-  // 7. Render visual grading overlay onto warped canvas
+  // 8. Render visual grading overlay onto warped canvas
   const canvas = document.createElement('canvas');
   canvas.width = warped.width;
   canvas.height = warped.height;
   const ctx = canvas.getContext('2d')!;
   ctx.putImageData(warped, 0, 0);
 
-  // Extract Name Box crop before drawing annotations
+  // Extract Full Header Crop + Isolated NAMA Write-in Line Crop (before annotations!)
   const nameCanvas = document.createElement('canvas');
   nameCanvas.width = template.nameCropRect.w;
   nameCanvas.height = template.nameCropRect.h;
-  const nCtx = nameCanvas.getContext('2d')!;
-  nCtx.drawImage(
-    canvas,
-    template.nameCropRect.x,
-    template.nameCropRect.y,
-    template.nameCropRect.w,
-    template.nameCropRect.h,
-    0,
-    0,
-    template.nameCropRect.w,
-    template.nameCropRect.h
-  );
+  nameCanvas
+    .getContext('2d')!
+    .drawImage(
+      canvas,
+      template.nameCropRect.x,
+      template.nameCropRect.y,
+      template.nameCropRect.w,
+      template.nameCropRect.h,
+      0,
+      0,
+      template.nameCropRect.w,
+      template.nameCropRect.h
+    );
   const nameCropDataUrl = nameCanvas.toDataURL('image/jpeg', 0.85);
 
-  // Draw Student ID detected rings in cyan
+  const lineCanvas = document.createElement('canvas');
+  lineCanvas.width = template.nameLineCropRect.w;
+  lineCanvas.height = template.nameLineCropRect.h;
+  lineCanvas
+    .getContext('2d')!
+    .drawImage(
+      canvas,
+      template.nameLineCropRect.x,
+      template.nameLineCropRect.y,
+      template.nameLineCropRect.w,
+      template.nameLineCropRect.h,
+      0,
+      0,
+      template.nameLineCropRect.w,
+      template.nameLineCropRect.h
+    );
+  const nameLineDataUrl = lineCanvas.toDataURL('image/png');
+
+  // Highlight QR code border green if auto-paired
+  if (qrMatchedQuizId) {
+    const qr = template.qrRect;
+    ctx.strokeStyle = '#16a34a';
+    ctx.lineWidth = 3;
+    ctx.strokeRect(qr.x - 3, qr.y - 3, qr.w + 6, qr.h + 6);
+  }
+
+  // Draw 8-digit No. NDP rings in cyan
   ctx.lineWidth = 3;
   for (let d = 0; d < template.studentIdDigits.length; d++) {
     const ch = decodedDigits[d];
@@ -914,12 +1009,39 @@ export function processAndGradeSheet(
     }
   }
 
-  // Draw Question grading markers (Green = correct, Red = wrong mark, Amber/Blue ring = expected correct answer)
+  // Draw KURSUS ring in indigo
+  if (detectedCourse) {
+    const cb = template.courseBubbles.find((b) => b.label === detectedCourse);
+    if (cb) {
+      ctx.strokeStyle = '#4f46e5';
+      ctx.fillStyle = 'rgba(79, 70, 229, 0.24)';
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.arc(cb.x, cb.y, cb.r + 3, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+    }
+  }
+
+  // Draw SEMESTER ring in teal
+  if (detectedSemester) {
+    const sb = template.semesterBubbles.find((b) => b.label === detectedSemester);
+    if (sb) {
+      ctx.strokeStyle = '#0d9488';
+      ctx.fillStyle = 'rgba(13, 148, 136, 0.24)';
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.arc(sb.x, sb.y, sb.r + 3, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+    }
+  }
+
+  // Draw Question grading markers
   for (let i = 0; i < template.questions.length; i++) {
     const qRow = template.questions[i];
     const det = questions[i];
 
-    // Highlight expected correct answer when student missed or left blank
     if (!det.isCorrect && det.expectedAnswers.length > 0) {
       for (const exp of det.expectedAnswers) {
         const b = qRow.bubbles[exp];
@@ -931,7 +1053,6 @@ export function processAndGradeSheet(
       }
     }
 
-    // Highlight student's selected bubbles
     for (const sel of det.selected) {
       const b = qRow.bubbles[sel];
       const hasKey = det.expectedAnswers.length > 0;
@@ -951,6 +1072,21 @@ export function processAndGradeSheet(
     }
   }
 
+  // Stamp saved Instructor Name into bottom-left Disemak oleh box if configured
+  const instName = options?.instructor?.name?.trim();
+  if (instName) {
+    const rv = template.reviewerBoxRect;
+    const nameAreaX = rv.x + 270;
+    const nameAreaW = rv.w - 284;
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(nameAreaX, rv.y + 24, nameAreaW, 20);
+    ctx.fillStyle = '#0f172a';
+    ctx.font = 'bold 12px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(instName, nameAreaX + nameAreaW / 2, rv.y + 35);
+  }
+
   // Render both correct count (e.g. 20/25) and percentage (e.g. 80%) cleanly inside the split bottom-right KEPUTUSAN MARKAH box
   const pct = maxScore > 0 ? Math.round((score / maxScore) * 1000) / 10 : 0;
   const sc = template.scoreBoxRect;
@@ -958,7 +1094,6 @@ export function processAndGradeSheet(
   const leftCx = sc.x + (midX - sc.x) / 2;
   const rightCx = midX + (sc.x + sc.w - midX) / 2;
 
-  // Clear lower values area while preserving header & sub-labels
   ctx.fillStyle = '#ffffff';
   ctx.fillRect(sc.x + 3, sc.y + 35, midX - sc.x - 5, sc.h - 38);
   ctx.fillRect(midX + 2, sc.y + 35, sc.x + sc.w - midX - 5, sc.h - 38);
@@ -968,12 +1103,10 @@ export function processAndGradeSheet(
   const valY = sc.y + 51;
 
   if (maxScore > 0) {
-    // Left cell: Bilangan jawapan betul (contoh: 20/25)
     ctx.fillStyle = '#0f172a';
     ctx.font = 'bold 21px sans-serif';
     ctx.fillText(`${correctCount}/${template.questionCount}`, leftCx, valY);
 
-    // Right cell: Nilai peratus (contoh: 80%)
     ctx.fillStyle = pct >= 70 ? '#15803d' : pct >= 50 ? '#d97706' : '#dc2626';
     ctx.font = 'bold 22px sans-serif';
     ctx.fillText(`${Math.round(pct)}%`, rightCx, valY);
@@ -992,6 +1125,10 @@ export function processAndGradeSheet(
     quizId: quiz.id,
     scannedAt: new Date().toISOString(),
     studentCode,
+    detectedCourse,
+    detectedSemester,
+    qrMatchedQuizId,
+    qrMatchedQuizName,
     score,
     maxScore,
     percentage: pct,
@@ -1001,6 +1138,7 @@ export function processAndGradeSheet(
     multiCount,
     annotatedImageDataUrl,
     nameCropDataUrl,
+    nameLineDataUrl,
     questions,
     diagnostics: {
       sharpness: Math.round(sharpness),
@@ -1008,6 +1146,7 @@ export function processAndGradeSheet(
       glareWarning,
       curveScore,
       processingMs,
+      qrRaw,
     },
   };
 }

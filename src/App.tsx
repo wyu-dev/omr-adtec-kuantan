@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   BarChart3,
   Camera,
@@ -8,16 +8,21 @@ import {
   KeyRound,
   Plus,
   Printer,
+  QrCode,
   Smartphone,
   Trash2,
+  UserCheck,
   Users,
 } from 'lucide-react';
 import {
   AnswerChoice,
+  CourseCode,
   GradedPaper,
+  InstructorProfile,
   MAX_QUESTION_COUNT,
   MIN_QUESTION_COUNT,
   Quiz,
+  SemesterCode,
   Student,
 } from './types';
 import { clampQuestionCount } from './omr/sheetTemplates';
@@ -25,9 +30,11 @@ import { regradePaper } from './omr/omrEngine';
 import { ADTEC_LOGO_DATA_URL } from './assets/adtecLogo';
 import {
   exportQuizResultsCsv,
+  loadInstructorProfile,
   loadPapers,
   loadQuizzes,
   loadStudents,
+  saveInstructorProfile,
   savePapers,
   saveQuizzes,
   saveStudents,
@@ -38,6 +45,7 @@ import { PaperReviewModal } from './components/PaperReviewModal';
 import { ItemAnalysisView } from './components/ItemAnalysisView';
 import { PrintableSheetsView } from './components/PrintableSheetsView';
 import { StudentsManager } from './components/StudentsManager';
+import { InstructorModal } from './components/InstructorModal';
 
 type TabId = 'scan' | 'key' | 'papers' | 'analysis' | 'students' | 'sheets';
 
@@ -48,17 +56,19 @@ export function App() {
   const [activeQuizId, setActiveQuizId] = useState<string>(() => loadQuizzes()[0]?.id ?? '');
   const [students, setStudents] = useState<Student[]>(() => loadStudents());
   const [papers, setPapers] = useState<GradedPaper[]>(() => loadPapers());
+  const [instructor, setInstructor] = useState<InstructorProfile>(() => loadInstructorProfile());
 
   const [activeTab, setActiveTab] = useState<TabId>('scan');
   const [scanMode, setScanMode] = useState<'grade' | 'key'>('grade');
   const [reviewPaperId, setReviewPaperId] = useState<string | null>(null);
   const [showNewQuizModal, setShowNewQuizModal] = useState(false);
+  const [showInstructorModal, setShowInstructorModal] = useState(false);
+
   const [installPrompt, setInstallPrompt] = useState<{
     prompt: () => Promise<void>;
     userChoice: Promise<{ outcome: 'accepted' | 'dismissed' }>;
   } | null>(null);
 
-  // Listen for browser PWA install prompt
   useEffect(() => {
     const handler = (e: Event) => {
       e.preventDefault();
@@ -77,19 +87,18 @@ export function App() {
     if (!installPrompt) return;
     await installPrompt.prompt();
     const res = await installPrompt.userChoice;
-    if (res.outcome === 'accepted') {
-      setInstallPrompt(null);
-    }
+    if (res.outcome === 'accepted') setInstallPrompt(null);
   };
 
-  // New quiz modal fields (manual question count)
+  // New quiz modal fields
   const [newQuizName, setNewQuizName] = useState('');
-  const [newQuizClass, setNewQuizClass] = useState('DKM Semester 2');
+  const [newQuizClass, setNewQuizClass] = useState('IT Sem 2');
   const [newQuizCount, setNewQuizCount] = useState<number>(30);
 
   useEffect(() => saveQuizzes(quizzes), [quizzes]);
   useEffect(() => saveStudents(students), [students]);
   useEffect(() => savePapers(papers), [papers]);
+  useEffect(() => saveInstructorProfile(instructor), [instructor]);
 
   const activeQuiz = useMemo(
     () => quizzes.find((q) => q.id === activeQuizId) ?? quizzes[0],
@@ -156,21 +165,66 @@ export function App() {
     setScanMode('grade');
   };
 
-  const handlePaperGraded = (paper: GradedPaper) => {
+  const handlePaperGraded = useCallback((paper: GradedPaper) => {
     setPapers((prev) => [paper, ...prev]);
-  };
+  }, []);
 
-  const handleUpdatePaper = (updated: GradedPaper) => {
+  const handleUpdatePaper = useCallback((updated: GradedPaper) => {
     setPapers((prev) => prev.map((p) => (p.id === updated.id ? updated : p)));
-  };
+  }, []);
 
-  const handleDeletePaper = (paperId: string) => {
+  const handleDeletePaper = useCallback((paperId: string) => {
     setPapers((prev) => prev.filter((p) => p.id !== paperId));
-  };
+  }, []);
+
+  const handleUpsertStudentFromScan = useCallback(
+    (info: {
+      studentCode: string;
+      name?: string;
+      course?: CourseCode | '';
+      semester?: SemesterCode | '';
+    }): string | undefined => {
+      const cleanCode = info.studentCode.replace(/\D/g, '');
+      if (cleanCode.length !== 8) return undefined;
+
+      let resolvedId: string | undefined;
+      setStudents((prev) => {
+        const idx = prev.findIndex((s) => s.studentCode === cleanCode);
+        if (idx >= 0) {
+          resolvedId = prev[idx].id;
+          const next = [...prev];
+          next[idx] = {
+            ...next[idx],
+            name:
+              next[idx].name && !next[idx].name.startsWith('Pelajar ')
+                ? next[idx].name
+                : info.name || next[idx].name,
+            course: info.course || next[idx].course,
+            semester: info.semester || next[idx].semester,
+          };
+          return next;
+        }
+        const newId = `stu_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+        resolvedId = newId;
+        return [
+          {
+            id: newId,
+            studentCode: cleanCode,
+            name: info.name || `Pelajar ${cleanCode}`,
+            course: info.course || '',
+            semester: info.semester || '',
+          },
+          ...prev,
+        ];
+      });
+      return resolvedId;
+    },
+    []
+  );
 
   const handleDownloadCsv = () => {
     if (!activeQuiz) return;
-    const csv = exportQuizResultsCsv(activeQuiz, quizPapers, students);
+    const csv = exportQuizResultsCsv(activeQuiz, quizPapers, students, instructor.name);
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -186,79 +240,116 @@ export function App() {
     return Math.round((sum / quizPapers.length) * 10) / 10;
   }, [quizPapers]);
 
-  const navItems: Array<{ id: TabId; label: string; icon: React.ReactNode; badge?: number }> = [
-    { id: 'scan', label: 'Imbas Kamera', icon: <Camera className="h-4 w-4" /> },
-    { id: 'key', label: 'Skema Jawapan', icon: <KeyRound className="h-4 w-4" /> },
-    { id: 'papers', label: 'Kertas Disemak', icon: <CheckSquare className="h-4 w-4" />, badge: quizPapers.length },
-    { id: 'analysis', label: 'Analisis Item', icon: <BarChart3 className="h-4 w-4" /> },
-    { id: 'students', label: 'Pelajar (NDP)', icon: <Users className="h-4 w-4" />, badge: students.length },
-    { id: 'sheets', label: 'Cetak Borang', icon: <Printer className="h-4 w-4" /> },
+  const navItems: Array<{
+    id: TabId;
+    shortLabel: string;
+    label: string;
+    icon: React.ReactNode;
+    badge?: number;
+  }> = [
+    { id: 'scan', shortLabel: 'Imbas', label: 'Imbas Kamera', icon: <Camera className="h-5 w-5" /> },
+    { id: 'key', shortLabel: 'Skema', label: 'Skema Jawapan', icon: <KeyRound className="h-5 w-5" /> },
+    {
+      id: 'papers',
+      shortLabel: 'Kertas',
+      label: 'Kertas Disemak',
+      icon: <CheckSquare className="h-5 w-5" />,
+      badge: quizPapers.length,
+    },
+    { id: 'analysis', shortLabel: 'Analisis', label: 'Analisis Item', icon: <BarChart3 className="h-5 w-5" /> },
+    {
+      id: 'students',
+      shortLabel: 'Pelajar',
+      label: 'Pelajar (NDP)',
+      icon: <Users className="h-5 w-5" />,
+      badge: students.length,
+    },
+    { id: 'sheets', shortLabel: 'Cetak', label: 'Cetak Borang', icon: <Printer className="h-5 w-5" /> },
   ];
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900">
-      {/* Top Navbar with ADTEC JTM Kampus Kuantan Logo */}
-      <header className="no-print sticky top-0 z-30 border-b border-slate-200 bg-white/95 backdrop-blur">
-        <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-3 px-4 py-2.5">
-          <div className="flex items-center gap-3">
+      {/* Compact Mobile-First Top Header */}
+      <header className="no-print sticky top-0 z-30 border-b border-slate-200/90 bg-white/95 backdrop-blur-md">
+        <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-2 px-3 py-2 sm:px-4">
+          {/* Brand */}
+          <div className="flex items-center gap-2.5">
             <img
               src="./pwa-192.png"
               alt="Ikon Aplikasi OMR ADTEC"
-              className="h-10 w-10 rounded-xl shadow-sm ring-1 ring-slate-200"
+              className="h-9 w-9 rounded-xl shadow-xs ring-1 ring-slate-200"
             />
             <img
               src={ADTEC_LOGO_DATA_URL}
               alt="Logo ADTEC JTM Kampus Kuantan"
-              className="h-10 w-auto object-contain"
+              className="h-8 w-auto object-contain sm:h-9"
             />
-            <div className="hidden border-l border-slate-200 pl-3 sm:block">
+            <div className="hidden border-l border-slate-200 pl-2.5 md:block">
               <h1 className="text-sm font-extrabold tracking-tight text-blue-950">
                 Sistem Semakan <span className="text-amber-500">OMR</span>
               </h1>
-              <p className="text-[11px] font-medium text-slate-500">
-                Pengimbas OMR Kamera • No. NDP 8 Digit • Simpanan Lokal Peranti
+              <p className="text-[10.5px] font-medium text-slate-500">
+                QR Auto-Padan • NDP 8 Digit • Simpanan Lokal
               </p>
             </div>
           </div>
 
-          {/* Quiz Selector + New Quiz */}
-          <div className="flex flex-wrap items-center gap-2">
+          {/* Right Action Controls */}
+          <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
+            {/* Lecturer Profile Pill (saved once per PWA!) */}
+            <button
+              type="button"
+              onClick={() => setShowInstructorModal(true)}
+              className={`inline-flex items-center gap-1.5 rounded-xl border px-2.5 py-1.5 text-xs font-bold transition active:scale-95 ${
+                instructor.name
+                  ? 'border-blue-200 bg-blue-50/70 text-blue-900 hover:bg-blue-100'
+                  : 'border-amber-300 bg-amber-50 text-amber-900 animate-pulse hover:bg-amber-100'
+              }`}
+              title="Tetapkan Nama Pengajar & Tandatangan untuk ruang 'Disemak oleh'"
+            >
+              <UserCheck className="h-3.5 w-3.5 shrink-0" />
+              <span className="max-w-[115px] truncate sm:max-w-[160px]">
+                {instructor.name || 'Isi Nama Pengajar'}
+              </span>
+            </button>
+
             <select
               aria-label="Pilih Ujian Aktif"
               value={activeQuiz?.id ?? ''}
               onChange={(e) => setActiveQuizId(e.target.value)}
-              className="max-w-[330px] rounded-xl border border-slate-300 bg-slate-50 px-3 py-2 text-xs font-bold text-slate-800 focus:border-blue-600 focus:outline-none"
+              className="max-w-[175px] rounded-xl border border-slate-300 bg-slate-50 px-2.5 py-1.5 text-xs font-bold text-slate-800 focus:border-blue-600 focus:outline-none sm:max-w-[260px]"
             >
               {quizzes.map((q) => (
                 <option key={q.id} value={q.id}>
-                  {q.name} ({q.questionCount} Soalan)
+                  {q.name} ({q.questionCount}S)
                 </option>
               ))}
             </select>
 
             <button
               onClick={() => setShowNewQuizModal(true)}
-              className="inline-flex items-center gap-1.5 rounded-xl bg-blue-900 px-3.5 py-2 text-xs font-bold text-white shadow-xs hover:bg-blue-950"
+              className="inline-flex items-center gap-1 rounded-xl bg-blue-900 px-3 py-1.5 text-xs font-bold text-white shadow-xs transition active:scale-95 hover:bg-blue-950"
+              title="Cipta Ujian Baru"
             >
               <Plus className="h-4 w-4" />
-              Ujian Baru
+              <span className="hidden sm:inline">Ujian Baru</span>
             </button>
 
             {installPrompt && (
               <button
                 onClick={handleInstallPwa}
-                className="inline-flex items-center gap-1.5 rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-bold text-amber-900 hover:bg-amber-100"
-                title="Pasang sebagai aplikasi PWA di telefon / desktop"
+                className="inline-flex items-center gap-1 rounded-xl border border-amber-300 bg-amber-50 px-2.5 py-1.5 text-xs font-bold text-amber-900 hover:bg-amber-100"
+                title="Pasang sebagai aplikasi PWA"
               >
-                <Smartphone className="h-4 w-4 text-amber-600" />
-                Pasang App
+                <Smartphone className="h-3.5 w-3.5 text-amber-600" />
+                <span className="hidden sm:inline">Pasang</span>
               </button>
             )}
 
             {quizzes.length > 1 && activeQuiz && (
               <button
                 onClick={() => handleDeleteQuiz(activeQuiz.id)}
-                className="rounded-xl border border-slate-200 p-2 text-slate-400 hover:bg-rose-50 hover:text-rose-600"
+                className="rounded-xl border border-slate-200 p-1.5 text-slate-400 hover:bg-rose-50 hover:text-rose-600"
                 title="Padam ujian semasa"
               >
                 <Trash2 className="h-4 w-4" />
@@ -266,52 +357,22 @@ export function App() {
             )}
           </div>
         </div>
-
-        {/* Navigation Tabs */}
-        <div className="border-t border-slate-100 bg-white">
-          <div className="mx-auto flex max-w-7xl gap-1 overflow-x-auto px-4 py-1.5">
-            {navItems.map((item) => {
-              const active = activeTab === item.id;
-              return (
-                <button
-                  key={item.id}
-                  onClick={() => {
-                    if (item.id === 'scan') setScanMode('grade');
-                    setActiveTab(item.id);
-                  }}
-                  className={`inline-flex shrink-0 items-center gap-2 rounded-xl px-3.5 py-2 text-xs font-bold transition ${
-                    active
-                      ? 'bg-blue-50 text-blue-900 ring-1 ring-blue-200'
-                      : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
-                  }`}
-                >
-                  {item.icon}
-                  {item.label}
-                  {typeof item.badge === 'number' && (
-                    <span
-                      className={`rounded-full px-1.5 py-0.5 text-[10px] font-extrabold ${
-                        active ? 'bg-blue-800 text-white' : 'bg-slate-200 text-slate-700'
-                      }`}
-                    >
-                      {item.badge}
-                    </span>
-                  )}
-                </button>
-              );
-            })}
-          </div>
-        </div>
       </header>
 
-      {/* Main Content */}
-      <main className="mx-auto max-w-7xl px-4 py-5">
+      {/* Main Content with bottom safe padding for mobile bottom nav */}
+      <main className="mx-auto max-w-7xl px-3 py-4 pb-28 sm:px-4 sm:py-5 sm:pb-28">
         {activeQuiz && activeTab === 'scan' && (
           <CameraScanner
             quiz={activeQuiz}
+            allQuizzes={quizzes}
             students={students}
             papers={quizPapers}
+            instructor={instructor}
             mode={scanMode}
             onPaperGraded={handlePaperGraded}
+            onPaperUpdated={handleUpdatePaper}
+            onAutoPairedQuiz={(qid) => setActiveQuizId(qid)}
+            onUpsertStudentFromScan={handleUpsertStudentFromScan}
             onKeyScanned={handleKeyScanned}
             onInspectPaper={(p) => setReviewPaperId(p.id)}
           />
@@ -332,7 +393,7 @@ export function App() {
           <div className="space-y-4">
             <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
               <div>
-                <h2 className="text-lg font-bold text-slate-900">
+                <h2 className="text-base font-bold text-slate-900 sm:text-lg">
                   Kertas Disemak — {activeQuiz.name}
                 </h2>
                 <p className="text-xs text-slate-500">
@@ -347,28 +408,28 @@ export function App() {
                     setScanMode('grade');
                     setActiveTab('scan');
                   }}
-                  className="inline-flex items-center gap-1.5 rounded-xl bg-blue-800 px-4 py-2 text-xs font-bold text-white hover:bg-blue-900"
+                  className="inline-flex items-center gap-1.5 rounded-xl bg-blue-800 px-3.5 py-2 text-xs font-bold text-white hover:bg-blue-900"
                 >
                   <Camera className="h-4 w-4" />
-                  Imbas Kertas Lagi
+                  Imbas Lagi
                 </button>
                 <button
                   onClick={handleDownloadCsv}
                   disabled={quizPapers.length === 0}
-                  className="inline-flex items-center gap-1.5 rounded-xl border border-slate-300 bg-white px-3.5 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+                  className="inline-flex items-center gap-1.5 rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
                 >
                   <Download className="h-4 w-4 text-emerald-600" />
-                  Eksport CSV
+                  CSV
                 </button>
               </div>
             </div>
 
             {quizPapers.length === 0 ? (
-              <div className="flex flex-col items-center justify-center rounded-2xl border-2 border-dashed border-slate-200 bg-white p-12 text-center">
+              <div className="flex flex-col items-center justify-center rounded-2xl border-2 border-dashed border-slate-200 bg-white p-10 text-center">
                 <FileSpreadsheet className="mb-3 h-10 w-10 text-slate-300" />
                 <h3 className="text-base font-bold text-slate-700">Tiada Kertas Disemak Lagi</h3>
                 <p className="mt-1 max-w-sm text-xs text-slate-500">
-                  Pergi ke tab <strong>Imbas Kamera</strong> untuk menyemak kertas jawapan pelajar menggunakan kamera telefon/komputer, muat naik gambar, atau simulasi imbasan.
+                  Tekan tab <strong>Imbas</strong> di bawah untuk menyemak kertas jawapan pelajar. QR Code di kanan atas akan memadankan skema secara automatik.
                 </p>
               </div>
             ) : (
@@ -377,7 +438,10 @@ export function App() {
                   const stu = students.find(
                     (s) => s.id === p.studentId || (p.studentCode && s.studentCode === p.studentCode)
                   );
-                  const displayName = p.studentNameOverride || stu?.name || 'Pelajar Belum Ditetapkan';
+                  const displayName =
+                    p.studentNameOverride || stu?.name || p.ocrName || 'Pelajar Belum Ditetapkan';
+                  const course = p.detectedCourse || stu?.course || '';
+                  const sem = p.detectedSemester || stu?.semester || '';
                   return (
                     <div
                       key={p.id}
@@ -389,8 +453,18 @@ export function App() {
                           <div className="truncate text-sm font-bold text-slate-900 group-hover:text-blue-800">
                             {displayName}
                           </div>
-                          <div className="mt-0.5 font-mono text-xs text-slate-500">
-                            NDP: {p.studentCode || '—'} • {new Date(p.scannedAt).toLocaleTimeString()}
+                          <div className="mt-0.5 flex flex-wrap items-center gap-1.5 font-mono text-[11px] text-slate-500">
+                            <span>NDP: {p.studentCode || '—'}</span>
+                            {course && (
+                              <span className="rounded bg-indigo-50 px-1.5 py-0.2 font-sans font-bold text-indigo-800">
+                                {course}
+                              </span>
+                            )}
+                            {sem && (
+                              <span className="rounded bg-teal-50 px-1.5 py-0.2 font-sans font-bold text-teal-800">
+                                Sem {sem}
+                              </span>
+                            )}
                           </div>
                         </div>
                         <div className="text-right">
@@ -403,10 +477,10 @@ export function App() {
                                   : 'text-rose-600'
                             }`}
                           >
-                            {p.percentage}%
+                            {Math.round(p.percentage)}%
                           </div>
                           <div className="text-[11px] font-semibold text-slate-500">
-                            {p.score}/{p.maxScore} m
+                            {p.correctCount}/{p.questions.length} betul
                           </div>
                         </div>
                       </div>
@@ -414,15 +488,19 @@ export function App() {
                       {p.nameCropDataUrl && (
                         <img
                           src={p.nameCropDataUrl}
-                          alt="Keratan nama pelajar"
-                          className="mt-3 max-h-12 w-full rounded-lg border border-slate-100 bg-slate-50 object-contain"
+                          alt="Keratan maklumat pelajar"
+                          className="mt-2.5 max-h-12 w-full rounded-lg border border-slate-100 bg-slate-50 object-contain"
                         />
                       )}
 
-                      <div className="mt-3 flex items-center justify-between border-t border-slate-100 pt-2.5 text-[11px] font-medium text-slate-500">
+                      <div className="mt-3 flex items-center justify-between border-t border-slate-100 pt-2 text-[11px] font-medium text-slate-500">
                         <span className="text-emerald-700">✓ {p.correctCount}</span>
                         <span className="text-rose-600">✗ {p.wrongCount}</span>
-                        <span>Kosong: {p.blankCount}</span>
+                        {p.qrMatchedQuizId && (
+                          <span className="inline-flex items-center gap-0.5 text-emerald-700">
+                            <QrCode className="h-3 w-3" /> QR
+                          </span>
+                        )}
                         <span className="font-semibold text-blue-700 group-hover:underline">
                           Semak →
                         </span>
@@ -444,18 +522,81 @@ export function App() {
         )}
 
         {activeQuiz && activeTab === 'sheets' && (
-          <PrintableSheetsView
-            defaultQuestionCount={activeQuiz.questionCount}
-            defaultTitle={activeQuiz.name}
-          />
+          <PrintableSheetsView quiz={activeQuiz} instructor={instructor} />
         )}
       </main>
+
+      {/* Mobile-First Animated Bottom Navigation Dock */}
+      <nav
+        aria-label="Navigasi Utama"
+        className="no-print safe-bottom-pad fixed inset-x-0 bottom-0 z-40 border-t border-slate-200/90 bg-white/95 shadow-[0_-6px_24px_rgba(15,23,42,0.08)] backdrop-blur-md"
+      >
+        <div className="mx-auto grid max-w-2xl grid-cols-6 gap-0.5 px-1.5 pt-1.5">
+          {navItems.map((item) => {
+            const active = activeTab === item.id;
+            return (
+              <button
+                key={item.id}
+                type="button"
+                onClick={() => {
+                  if (item.id === 'scan') setScanMode('grade');
+                  setActiveTab(item.id);
+                }}
+                className={`relative flex flex-col items-center justify-center rounded-2xl py-1.5 transition-all duration-200 active:scale-90 ${
+                  active ? 'text-blue-900' : 'text-slate-500 hover:text-slate-800'
+                }`}
+              >
+                {/* Sliding/expanding active top accent pill */}
+                <span
+                  className={`absolute top-0 h-1 rounded-full bg-amber-500 transition-all duration-300 ${
+                    active ? 'w-8 opacity-100' : 'w-0 opacity-0'
+                  }`}
+                />
+
+                <div
+                  className={`relative flex h-8 w-11 items-center justify-center rounded-xl transition-colors duration-200 ${
+                    active ? 'nav-icon-active bg-blue-100/90 text-blue-900' : 'bg-transparent'
+                  }`}
+                >
+                  {item.icon}
+                  {typeof item.badge === 'number' && item.badge > 0 && (
+                    <span
+                      className={`absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[9px] font-extrabold text-white shadow-xs ${
+                        active ? 'bg-blue-900' : 'bg-slate-500'
+                      }`}
+                    >
+                      {item.badge}
+                    </span>
+                  )}
+                </div>
+
+                <span
+                  className={`mt-0.5 text-[10px] leading-tight transition-all duration-200 ${
+                    active ? 'font-extrabold text-blue-950' : 'font-semibold text-slate-500'
+                  }`}
+                >
+                  {item.shortLabel}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      </nav>
+
+      {/* Instructor Profile Modal (Nama Pengajar & Tandatangan) */}
+      {showInstructorModal && (
+        <InstructorModal
+          profile={instructor}
+          onSave={setInstructor}
+          onClose={() => setShowInstructorModal(false)}
+        />
+      )}
 
       {/* Paper Review Modal */}
       {reviewPaper && activeQuiz && (
         <PaperReviewModal
           paper={reviewPaper}
-          quiz={activeQuiz}
+          quiz={quizzes.find((q) => q.id === reviewPaper.quizId) ?? activeQuiz}
           students={students}
           onClose={() => setReviewPaperId(null)}
           onUpdatePaper={handleUpdatePaper}
@@ -463,7 +604,7 @@ export function App() {
         />
       )}
 
-      {/* Create Quiz Modal (Manual Question Count 1..100) */}
+      {/* Create Quiz Modal */}
       {showNewQuizModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4 backdrop-blur-xs">
           <form
@@ -475,7 +616,7 @@ export function App() {
               <img src={ADTEC_LOGO_DATA_URL} alt="ADTEC JTM Kuantan" className="h-7 w-auto" />
             </div>
             <p className="text-xs text-slate-500">
-              Tetapkan sebarang bilangan soalan secara manual (1 hingga 60 soalan). Saiz bulatan akan dilaras secara automatik supaya borang sentiasa kemas dan penuh.
+              Tetapkan sebarang bilangan soalan secara manual (1 hingga 60 soalan). QR Code unik skema akan dijana secara automatik.
             </p>
 
             <div className="mt-4 space-y-3.5">
@@ -497,12 +638,12 @@ export function App() {
 
               <div>
                 <label htmlFor="new-quiz-class" className="mb-1 block text-xs font-bold text-slate-700">
-                  Kursus / Bengkel
+                  Catatan Kursus / Kumpulan
                 </label>
                 <input
                   id="new-quiz-class"
                   type="text"
-                  placeholder="cth: DKM Semester 2"
+                  placeholder="cth: IT / KIMP Sem 2"
                   value={newQuizClass}
                   onChange={(e) => setNewQuizClass(e.target.value)}
                   className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-blue-600 focus:outline-none"
@@ -522,7 +663,7 @@ export function App() {
                     required
                     value={newQuizCount}
                     onChange={(e) => setNewQuizCount(Number(e.target.value))}
-                    className="w-28 rounded-xl border border-blue-300 bg-blue-50/50 px-3 py-2 text-center font-mono text-base font-extrabold text-blue-900 focus:border-blue-600 focus:outline-none"
+                    className="w-24 rounded-xl border border-blue-300 bg-blue-50/50 px-3 py-2 text-center font-mono text-base font-extrabold text-blue-900 focus:border-blue-600 focus:outline-none"
                   />
                   <input
                     type="range"
@@ -565,7 +706,7 @@ export function App() {
                 type="submit"
                 className="rounded-xl bg-blue-800 px-4 py-2 text-xs font-bold text-white hover:bg-blue-900"
               >
-                Cipta & Tetapkan Skema
+                Cipta &amp; Jana QR Skema
               </button>
             </div>
           </form>

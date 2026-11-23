@@ -3,11 +3,13 @@ import {
   AnswerChoice,
   AnswerSheetTemplate,
   CircleLoc,
+  COURSE_CODES,
   MAX_QUESTION_COUNT,
   MIN_QUESTION_COUNT,
   NDP_DIGIT_COUNT,
   Point2D,
   QuestionBubbleRow,
+  SEMESTER_CODES,
   StudentIdDigitGroup,
 } from '../types';
 
@@ -58,20 +60,20 @@ function makeQuestionRow(
 }
 
 /**
- * Large, spacious 8-digit vertical No. NDP Pelajar bubble grid.
+ * Large 8-digit vertical No. NDP Pelajar bubble grid (Left block: x=98..482, y=186..514).
  */
 function buildNdpGrid(): {
   box: { x: number; y: number; w: number; h: number };
   digits: StudentIdDigitGroup[];
 } {
-  const box = { x: 98, y: 190, w: 392, h: 326 };
+  const box = { x: 98, y: 186, w: 384, h: 328 };
   const digits: StudentIdDigitGroup[] = [];
-  const startX = 140;
-  const colStep = 44;
-  const headerY = 230;
-  const startY = 262;
+  const startX = 139;
+  const colStep = 43;
+  const headerY = 224;
+  const startY = 256;
   const rowStep = 26.8;
-  const r = 10.6;
+  const r = 10.4;
 
   for (let d = 0; d < NDP_DIGIT_COUNT; d++) {
     const cx = startX + d * colStep;
@@ -96,13 +98,62 @@ function buildNdpGrid(): {
 }
 
 /**
- * Dynamically generate a pixel-accurate OMR Answer Sheet template for ANY manual question count (1..60).
- * Adaptive bubble sizing ensures fewer questions (e.g. 10, 20, 30) automatically scale up
- * with larger bubbles and spacing so the answer zone always looks balanced and full.
+ * Horizontal KURSUS bubble row (Right-Top: x=496..802, y=186..272)
+ * AUTO, CSB, FSL, IT, JE, KIMP, REL, TPM, TPP
+ */
+function buildCourseBubbles(): {
+  box: { x: number; y: number; w: number; h: number };
+  bubbles: CircleLoc[];
+} {
+  const box = { x: 496, y: 186, w: 306, h: 86 };
+  const startX = 517;
+  const step = 33;
+  const cy = 249;
+  const r = 9.8;
+  const bubbles: CircleLoc[] = COURSE_CODES.map((code, idx) => ({
+    x: startX + idx * step,
+    y: cy,
+    r,
+    label: code,
+  }));
+  return { box, bubbles };
+}
+
+/**
+ * Horizontal SEMESTER bubble row (Right-Mid: x=496..802, y=282..362)
+ * 1, 2, 3, 4, 5
+ */
+function buildSemesterBubbles(): {
+  box: { x: number; y: number; w: number; h: number };
+  bubbles: CircleLoc[];
+} {
+  const box = { x: 496, y: 282, w: 306, h: 80 };
+  const startX = 543;
+  const step = 53;
+  const cy = 337;
+  const r = 11.5;
+  const bubbles: CircleLoc[] = SEMESTER_CODES.map((sem, idx) => ({
+    x: startX + idx * step,
+    y: cy,
+    r,
+    label: sem,
+  }));
+  return { box, bubbles };
+}
+
+/**
+ * Dynamically generate a pixel-accurate OMR Answer Sheet template for ANY manual question count (1..60):
+ * - Top-right QR code box (`qrRect`) for automatic quiz/key pairing
+ * - 3-field top info box (`NAMA`, `NO. KAD PENGENALAN`, `TARIKH`) + dedicated NAMA line OCR crop
+ * - Left: 8-digit No. NDP bubbles | Right: Horizontal KURSUS (9) + Horizontal SEMESTER (1-5) + Arahan
+ * - Lower grid: Dynamic 1..60 A–D questions grouped in 5-row blocks with adaptive bubble sizing
+ * - Footer: Left `Disemak oleh:` box + Right `KEPUTUSAN MARKAH` (`Jawapan Betul` + `Peratus`) box
  */
 export function buildSheetTemplate(rawQuestionCount: number): AnswerSheetTemplate {
   const questionCount = clampQuestionCount(rawQuestionCount);
   const ndp = buildNdpGrid();
+  const course = buildCourseBubbles();
+  const semester = buildSemesterBubbles();
   const questions: QuestionBubbleRow[] = [];
 
   // Dedicated lower question zone: x=[98..802], y=[552..1034]
@@ -117,7 +168,6 @@ export function buildSheetTemplate(rawQuestionCount: number): AnswerSheetTemplat
   let groupGap: number;
 
   if (questionCount <= 5) {
-    // 1 centered column, extra-large bold bubbles filling the zone cleanly
     colStarts = [358];
     colStep = 64;
     labelOffset = 52;
@@ -125,7 +175,6 @@ export function buildSheetTemplate(rawQuestionCount: number): AnswerSheetTemplat
     maxRowStep = 76;
     groupGap = 0;
   } else if (questionCount <= 10) {
-    // 1 centered column, 2 blocks of 5 with large r=16 bubbles
     colStarts = [366];
     colStep = 58;
     labelOffset = 48;
@@ -133,7 +182,6 @@ export function buildSheetTemplate(rawQuestionCount: number): AnswerSheetTemplat
     maxRowStep = 47.0;
     groupGap = 24;
   } else if (questionCount <= 20) {
-    // 2 wide columns x up to 10 rows (2 blocks of 5 per col) with large r=15.2 bubbles
     colStarts = [194, 558];
     colStep = 54;
     labelOffset = 46;
@@ -141,7 +189,6 @@ export function buildSheetTemplate(rawQuestionCount: number): AnswerSheetTemplat
     maxRowStep = 47.0;
     groupGap = 24;
   } else if (questionCount <= 30) {
-    // 3 generous columns x up to 10 rows (2 blocks of 5 per col) with large r=14.0 bubbles filling full height & width!
     colStarts = [164, 400, 636];
     colStep = 42;
     labelOffset = 37;
@@ -149,7 +196,6 @@ export function buildSheetTemplate(rawQuestionCount: number): AnswerSheetTemplat
     maxRowStep = 47.5;
     groupGap = 24;
   } else if (questionCount <= 45) {
-    // 3 balanced columns x up to 15 rows (3 blocks of 5 per col)
     colStarts = [166, 402, 638];
     colStep = 38;
     labelOffset = 35;
@@ -157,7 +203,6 @@ export function buildSheetTemplate(rawQuestionCount: number): AnswerSheetTemplat
     maxRowStep = 30.6;
     groupGap = 15;
   } else {
-    // 4 clean columns x up to 15 rows (46..60 -> 1-15, 16-30, 31-45, 46-60)
     colStarts = [148, 330, 512, 694];
     colStep = 31;
     labelOffset = 28;
@@ -177,7 +222,6 @@ export function buildSheetTemplate(rawQuestionCount: number): AnswerSheetTemplat
       ? 0
       : Math.min(maxRowStep, Math.floor((availableH / (rowsPerCol - 1)) * 10) / 10);
 
-  // For tiny sets (1..5), gently center vertically inside the answer zone
   const totalUsedH = (rowsPerCol - 1) * rowStep + gapsPerCol * groupGap + r * 2;
   const startY =
     questionCount <= 5
@@ -203,7 +247,7 @@ export function buildSheetTemplate(rawQuestionCount: number): AnswerSheetTemplat
   }
 
   return {
-    id: `custom-${questionCount}q-abcd-g5-adaptive`,
+    id: `custom-${questionCount}q-v3-qr-kursus-sem`,
     name: `Borang OMR ${questionCount} Soalan (A–D)`,
     questionCount,
     warpWidth: WARP_W,
@@ -214,11 +258,18 @@ export function buildSheetTemplate(rawQuestionCount: number): AnswerSheetTemplat
     curveFiducialSize: 22,
     orientationDot: ORIENTATION_DOT,
     orientationBlank: ORIENTATION_BLANK,
-    nameCropRect: { x: 98, y: 114, w: 704, h: 66 },
+    qrRect: { x: 706, y: 10, w: 92, h: 92 },
+    nameCropRect: { x: 98, y: 112, w: 704, h: 66 },
+    nameLineCropRect: { x: 162, y: 115, w: 626, h: 28 },
+    reviewerBoxRect: { x: 98, y: 1046, w: 476, h: 68 },
     scoreBoxRect: { x: 588, y: 1046, w: 214, h: 68 },
     studentIdLayout: 'vertical',
     studentIdBox: ndp.box,
     studentIdDigits: ndp.digits,
+    courseBox: course.box,
+    courseBubbles: course.bubbles,
+    semesterBox: semester.box,
+    semesterBubbles: semester.bubbles,
     questions,
   };
 }

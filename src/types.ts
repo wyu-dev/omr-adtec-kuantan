@@ -1,6 +1,22 @@
 export type AnswerChoice = 'A' | 'B' | 'C' | 'D';
 export const ANSWER_CHOICES: AnswerChoice[] = ['A', 'B', 'C', 'D'];
 
+export const COURSE_CODES = [
+  'AUTO',
+  'CSB',
+  'FSL',
+  'IT',
+  'JE',
+  'KIMP',
+  'REL',
+  'TPM',
+  'TPP',
+] as const;
+export type CourseCode = (typeof COURSE_CODES)[number];
+
+export const SEMESTER_CODES = ['1', '2', '3', '4', '5'] as const;
+export type SemesterCode = (typeof SEMESTER_CODES)[number];
+
 export const MIN_QUESTION_COUNT = 1;
 export const MAX_QUESTION_COUNT = 60;
 export const NDP_DIGIT_COUNT = 8;
@@ -38,6 +54,11 @@ export interface StudentIdDigitGroup {
   bubbles: CircleLoc[]; // 0..9
 }
 
+export interface InstructorProfile {
+  name: string;
+  signatureDataUrl?: string;
+}
+
 export interface AnswerSheetTemplate {
   id: string;
   name: string;
@@ -53,17 +74,30 @@ export interface AnswerSheetTemplate {
   /** Orientation dot (dark) and symmetric blank check point (white) */
   orientationDot: CircleLoc;
   orientationBlank: CircleLoc;
+  /** Top-right QR code box encoding quiz/answer-key identity */
+  qrRect: Rect2D;
+  /** Top student header info box (NAMA, NO. KAD PENGENALAN, TARIKH) */
   nameCropRect: Rect2D;
-  /** Bottom-right official score box (MARKAH %) */
+  /** Dedicated NAMA write-in strip for handwriting OCR */
+  nameLineCropRect: Rect2D;
+  /** Bottom-left Disemak oleh (Tandatangan & Nama Pengajar) box */
+  reviewerBoxRect: Rect2D;
+  /** Bottom-right KEPUTUSAN MARKAH (Jawapan Betul + Peratus) box */
   scoreBoxRect: Rect2D;
   studentIdLayout: 'vertical';
   studentIdBox: Rect2D;
   studentIdDigits: StudentIdDigitGroup[];
+  /** Horizontal KURSUS bubbles (AUTO, CSB, FSL, IT, JE, KIMP, REL, TPM, TPP) */
+  courseBox: Rect2D;
+  courseBubbles: CircleLoc[];
+  /** Horizontal SEMESTER bubbles (1, 2, 3, 4, 5) */
+  semesterBox: Rect2D;
+  semesterBubbles: CircleLoc[];
   questions: QuestionBubbleRow[];
 }
 
 export interface QuestionKeyRule {
-  correctAnswers: AnswerChoice[]; // supports 1 or multiple accepted answers
+  correctAnswers: AnswerChoice[];
   points: number;
 }
 
@@ -71,10 +105,10 @@ export interface Quiz {
   id: string;
   name: string;
   className: string;
-  /** Custom manual question count (1..100) */
+  /** Custom manual question count (1..60) */
   questionCount: number;
   createdAt: string;
-  answerKey: Record<number, QuestionKeyRule>; // questionNumber -> rule
+  answerKey: Record<number, QuestionKeyRule>;
 }
 
 export interface Student {
@@ -82,7 +116,8 @@ export interface Student {
   /** 8-digit No. NDP pelajar (e.g. "22210001") */
   studentCode: string;
   name: string;
-  className: string;
+  course: CourseCode | '';
+  semester: SemesterCode | '';
 }
 
 export type BubbleMarkStatus = 'single' | 'blank' | 'multiple';
@@ -91,7 +126,7 @@ export interface QuestionDetection {
   questionNumber: number;
   selected: AnswerChoice[];
   status: BubbleMarkStatus;
-  scores: Record<AnswerChoice, number>; // relative darkness 0..1
+  scores: Record<AnswerChoice, number>;
   confidence: number;
   isCorrect: boolean;
   pointsEarned: number;
@@ -105,6 +140,15 @@ export interface GradedPaper {
   scannedAt: string;
   /** Decoded 8-digit No. NDP */
   studentCode: string;
+  /** Decoded horizontal KURSUS bubble */
+  detectedCourse: CourseCode | '';
+  /** Decoded horizontal SEMESTER bubble */
+  detectedSemester: SemesterCode | '';
+  /** Handwritten student name extracted via OCR */
+  ocrName?: string;
+  /** Quiz auto-paired from top-right QR code (if detected) */
+  qrMatchedQuizId?: string;
+  qrMatchedQuizName?: string;
   studentId?: string;
   studentNameOverride?: string;
   score: number;
@@ -116,9 +160,10 @@ export interface GradedPaper {
   multiCount: number;
   /** Base64 JPEG of the warped sheet with visual grading overlay */
   annotatedImageDataUrl: string;
-  /** Base64 JPEG of the cropped student name box */
+  /** Base64 JPEG of the cropped student header box */
   nameCropDataUrl?: string;
-  /** Raw detected answers (can be manually overridden in review) */
+  /** Base64 PNG of the isolated handwritten NAMA line (for OCR) */
+  nameLineDataUrl?: string;
   questions: QuestionDetection[];
   diagnostics: {
     sharpness: number;
@@ -126,15 +171,14 @@ export interface GradedPaper {
     glareWarning: boolean;
     curveScore: number;
     processingMs: number;
+    qrRaw?: string | null;
   };
 }
 
 export interface FiducialDetectionResult {
-  /** TL, TR, BR, BL in image coordinates, or null if not locked */
   corners: [Point2D | null, Point2D | null, Point2D | null, Point2D | null];
   allLocked: boolean;
   sharpness: number;
   isSharp: boolean;
-  /** Viewfinder guide rects (normalized 0..1) */
   guideRects: [Rect2D, Rect2D, Rect2D, Rect2D];
 }
