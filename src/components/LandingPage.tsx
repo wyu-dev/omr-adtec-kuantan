@@ -61,8 +61,8 @@ export const LandingPage: React.FC<LandingPageProps> = ({
     },
     {
       num: '02',
-      title: 'Cipta Ujian & Tetapkan Skema (1–60 Soalan)',
-      desc: 'Tekan "Ujian Baru", pilih bilangan soalan secara manual (1 hingga 60 soalan), dan tanda jawapan betul A–D atau imbas kertas skema. Sistem menjana QR Code unik secara automatik untuk setiap ujian.',
+      title: 'Cipta Penilaian & Tetapkan Skema (1–60 Soalan)',
+      desc: 'Tekan "Penilaian Baru", pilih bilangan soalan secara manual (1 hingga 60 soalan), dan tanda jawapan betul A–D atau imbas kertas skema. Sistem menjana QR Code unik secara automatik untuk setiap penilaian.',
       tip: 'Setiap ujian ada QR Code berbeza di penjuru kanan atas.',
       icon: <KeyRound className="h-5 w-5" />,
       color: 'bg-amber-500 text-white',

@@ -1,4 +1,4 @@
-const CACHE_NAME = 'omr-adtec-kuantan-v6';
+const CACHE_NAME = 'omr-adtec-kuantan-v7';
 const CORE_ASSETS = [
   './',
   './index.html',

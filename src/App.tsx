@@ -383,10 +383,10 @@ export function App() {
             <button
               onClick={() => setShowNewQuizModal(true)}
               className="inline-flex items-center gap-1 rounded-xl bg-blue-900 px-3 py-1.5 text-xs font-bold text-white shadow-xs transition active:scale-95 hover:bg-blue-950"
-              title="Cipta Ujian Baru"
+              title="Cipta Penilaian Baru"
             >
               <Plus className="h-4 w-4" />
-              <span className="hidden sm:inline">Ujian Baru</span>
+              <span className="hidden sm:inline">Penilaian Baru</span>
             </button>
 
             {installPrompt && (
@@ -673,7 +673,7 @@ export function App() {
             className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl"
           >
             <div className="mb-3 flex items-center justify-between">
-              <h3 className="text-lg font-extrabold text-blue-950">Cipta Ujian Baru</h3>
+              <h3 className="text-lg font-extrabold text-blue-950">Cipta Penilaian Baru</h3>
               <img src={ADTEC_LOGO_DATA_URL} alt="ADTEC JTM Kuantan" className="h-7 w-auto" />
             </div>
             <p className="text-xs text-slate-500">
